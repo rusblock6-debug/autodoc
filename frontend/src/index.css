@@ -1,47 +1,134 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-@layer base {
-  :root {
-    --color-primary: #3b82f6;
-    --color-secondary: #10b981;
-    --color-accent: #f59e0b;
-    --color-danger: #ef4444;
-    --color-background: #f8fafc;
-    --color-surface: #ffffff;
-    --color-text: #1e293b;
-    --color-text-secondary: #64748b;
-  }
+/* Import Font Awesome */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+
+/* Import Notion Styles */
+@import './styles-notion.css';
+@import './components-notion.css';
+
+/* Additional Global Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-@layer components {
-  .btn-primary {
-    @apply bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-  
-  .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-  
-  .btn-success {
-    @apply bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-  
-  .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
-  }
-  
-  .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all;
-  }
-  
-  .click-marker {
-    @apply absolute w-8 h-8 rounded-full border-4 border-yellow-400 bg-yellow-400/20 cursor-move shadow-lg;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8);
-  }
-  
-  .step-card {
-    @apply bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200;
-  }
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--notion-border);
+  border-top-color: var(--notion-gray-800);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Utility: radius-full */
+.radius-full {
+  border-radius: 9999px;
+}
+
+/* Notion shortcut styling */
+.notion-shortcut {
+  font-size: 11px;
+  color: var(--notion-gray-400);
+  background: var(--notion-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--notion-border);
+}
+
+
+/* Additional Animations */
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateX(-50%) translateY(10px); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Editor Notification */
+.editor-notification {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background: #37352F;
+  color: white;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1001;
+  animation: slideUp 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Button States */
+.notion-btn.changed::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  background: #2383E2;
+  border-radius: 50%;
+}
+
+.notion-btn {
+  position: relative;
+}
+
+.notion-btn.saving,
+.notion-btn.processing {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* Back Button */
+.notion-back-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--notion-gray-600);
+  transition: all var(--transition-fast);
+}
+
+.notion-back-btn:hover {
+  background: var(--notion-bg-hover);
+  color: var(--notion-gray-800);
+}
+
+/* Disable button styles */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Smooth transitions for all interactive elements */
+a, button, input, textarea, select {
+  transition: all var(--transition-fast);
 }

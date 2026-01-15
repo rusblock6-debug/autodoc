@@ -69,8 +69,8 @@ async def list_guides(
         search_term = f"%{search}%"
         query = query.where(Guide.title.ilike(search_term))
     
-    if user_id:
-        query = query.where(Guide.user_id == user_id)
+    # if user_id:
+    #     query = query.where(Guide.user_id == user_id)  # TODO: User model not implemented in MVP
     
     # Получаем общее количество
     count_query = select(func.count()).select_from(query.subquery())

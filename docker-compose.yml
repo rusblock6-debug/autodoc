@@ -58,16 +58,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: development
     container_name: autodoc-frontend
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - ./frontend:/app
     environment:
-      - VITE_API_URL=http://autodoc-ai:8000
-      - NODE_ENV=development
+      - PORT=3000
+      - HOST=0.0.0.0
     networks:
       - autodoc-network
     restart: unless-stopped

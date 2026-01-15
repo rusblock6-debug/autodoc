@@ -1,271 +1,343 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoDoc AI Recorder</title>
+    <title>AutoDoc AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * {
+        *, *::before, *::after {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
-        
+
         body {
             width: 320px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #fff;
-            padding: 16px;
+            min-height: 400px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #1E293B;
+            background: #FFFFFF;
         }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .header h1 {
-            font-size: 18px;
-            font-weight: 600;
-            background: linear-gradient(90deg, #FFD700, #FFA500);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .header p {
-            font-size: 11px;
-            color: rgba(255,255,255,0.5);
-            margin-top: 4px;
-        }
-        
-        .status-panel {
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        
-        .status-item {
+
+        .popup-container {
+            padding: 24px;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .popup-header {
+            display: flex;
             align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 16px;
+            border-bottom: 1px solid #E2E8F0;
         }
-        
-        .status-item:last-child {
-            border-bottom: none;
-        }
-        
-        .status-label {
-            font-size: 12px;
-            color: rgba(255,255,255,0.6);
-        }
-        
-        .status-value {
-            font-size: 12px;
-            font-weight: 500;
-            color: #fff;
-        }
-        
-        .status-value.recording {
-            color: #FF4444;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        .control-buttons {
+
+        .logo {
             display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
+            align-items: center;
+            gap: 8px;
         }
-        
-        .btn {
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        .logo-text {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1E293B;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 0;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 16px;
+            background: #F1F5F9;
+            border-radius: 9999px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #64748B;
+        }
+
+        .status-indicator.recording .status-dot {
+            background: #DC2626;
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.2); }
+        }
+
+        .status-text {
+            font-size: 13px;
+            color: #64748B;
+        }
+
+        .action-section {
             flex: 1;
-            padding: 12px 16px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 32px 0;
         }
-        
-        .btn-primary {
-            background: linear-gradient(90deg, #FFD700, #FFA500);
-            color: #1a1a2e;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
-        }
-        
-        .btn-primary:disabled {
-            background: #333;
-            color: #666;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
-        .btn-secondary {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
-        }
-        
-        .btn-secondary:hover {
-            background: rgba(255,255,255,0.2);
-        }
-        
-        .btn-danger {
-            background: #FF4444;
-            color: #fff;
-        }
-        
-        .btn-danger:hover {
-            background: #ff6666;
-        }
-        
-        .session-name {
-            margin-bottom: 16px;
-        }
-        
-        .session-name label {
-            display: block;
-            font-size: 12px;
-            color: rgba(255,255,255,0.6);
-            margin-bottom: 6px;
-        }
-        
-        .session-name input {
+
+        .record-btn {
             width: 100%;
-            padding: 10px 12px;
-            border: 1px solid rgba(255,255,255,0.1);
+            max-width: 220px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            color: white;
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+            box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
+            border: none;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .record-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 38, 38, 0.5);
+        }
+
+        .record-btn.stop {
+            background: linear-gradient(135deg, #64748B 0%, #475569 100%);
+            box-shadow: 0 4px 14px rgba(100, 116, 139, 0.4);
+        }
+
+        .timer-display {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #F1F5F9;
             border-radius: 8px;
-            background: rgba(255,255,255,0.05);
-            color: #fff;
-            font-size: 14px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1E293B;
         }
-        
-        .session-name input:focus {
-            outline: none;
-            border-color: #FFD700;
+
+        .timer-display.active {
+            display: flex;
         }
-        
-        .actions {
+
+        .timer-display i {
+            color: #DC2626;
+        }
+
+        .recent-guides {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94A3B8;
+            margin-bottom: 8px;
+        }
+
+        .guides-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
-        
-        .action-btn {
+
+        .mini-guide-card {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 12px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
+            gap: 8px;
+            padding: 8px;
+            background: #F1F5F9;
             border-radius: 8px;
-            color: #fff;
-            font-size: 13px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
+            text-decoration: none;
+            color: inherit;
         }
-        
-        .action-btn:hover {
-            background: rgba(255,255,255,0.1);
-            border-color: rgba(255,255,255,0.2);
+
+        .mini-guide-card:hover {
+            background: #E2E8F0;
         }
-        
-        .action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+
+        .mini-guide-preview {
+            width: 40px;
+            height: 28px;
+            border-radius: 4px;
+            overflow: hidden;
+            flex-shrink: 0;
         }
-        
-        .action-icon {
-            width: 20px;
-            height: 20px;
+
+        .mini-guide-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .mini-guide-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .mini-guide-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: #1E293B;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mini-guide-date {
+            font-size: 10px;
+            color: #94A3B8;
+        }
+
+        .popup-footer {
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: space-between;
+            padding-top: 16px;
+            border-top: 1px solid #E2E8F0;
+            margin-top: auto;
         }
-        
-        .footer {
-            margin-top: 16px;
-            padding-top: 12px;
-            border-top: 1px solid rgba(255,255,255,0.1);
-            text-align: center;
-        }
-        
-        .footer a {
-            font-size: 11px;
-            color: rgba(255,255,255,0.4);
+
+        .footer-link,
+        .settings-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 13px;
+            color: #64748B;
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: all 0.15s ease;
             text-decoration: none;
+            background: none;
+            border: none;
+            cursor: pointer;
         }
-        
-        .footer a:hover {
-            color: #FFD700;
+
+        .footer-link:hover,
+        .settings-btn:hover {
+            background: #F1F5F9;
+            color: #1E293B;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>AutoDoc AI</h1>
-        <p>Record screen & create guides</p>
-    </div>
-    
-    <div class="status-panel">
-        <div class="status-item">
-            <span class="status-label">Status</span>
-            <span class="status-value" id="status">Ready</span>
+    <div class="popup-container">
+        <!-- Header -->
+        <header class="popup-header">
+            <div class="logo">
+                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%232563EB'/%3E%3Cpath d='M12 12h16v4H12zm0 6h12v4H12zm0 6h14v4H12z' fill='white'/%3E%3Ccircle cx='30' cy='10' r='5' fill='%2310B981'/%3E%3C/svg%3E" alt="AutoDoc AI" class="logo-icon">
+                <span class="logo-text">AutoDoc AI</span>
+            </div>
+        </header>
+
+        <!-- Status -->
+        <div class="status-bar">
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot"></span>
+                <span class="status-text" id="statusText">Не записывается</span>
+            </div>
         </div>
-        <div class="status-item">
-            <span class="status-label">Duration</span>
-            <span class="status-value" id="duration">00:00:00</span>
+
+        <!-- Main Action Button -->
+        <div class="action-section">
+            <button id="startRecordBtn" class="record-btn">
+                <i class="fas fa-microphone"></i>
+                <span>Начать запись</span>
+            </button>
+
+            <button id="stopRecordBtn" class="record-btn stop" style="display: none;">
+                <i class="fas fa-stop"></i>
+                <span>Остановить запись</span>
+            </button>
         </div>
-        <div class="status-item">
-            <span class="status-label">Clicks</span>
-            <span class="status-value" id="clickCount">0</span>
+
+        <!-- Timer Display -->
+        <div id="timerDisplay" class="timer-display">
+            <i class="fas fa-clock"></i>
+            <span id="timerText">00:00</span>
         </div>
-        <div class="status-item">
-            <span class="status-label">Microphone</span>
-            <span class="status-value" id="micStatus">Off</span>
+
+        <!-- Recent Guides Section -->
+        <div class="recent-guides">
+            <h3 class="section-title">Недавние гайды</h3>
+            <div id="recentGuidesList" class="guides-list">
+                <a href="http://localhost:3000" target="_blank" class="mini-guide-card">
+                    <div class="mini-guide-preview">
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 28'%3E%3Crect fill='%23E2E8F0' width='40' height='28'/%3E%3Crect x='4' y='4' width='32' height='8' rx='2' fill='%23CBD5E1'/%3E%3Crect x='4' y='16' width='20' height='6' rx='1' fill='%23CBD5E1'/%3E%3C/svg%3E" alt="Preview">
+                    </div>
+                    <div class="mini-guide-info">
+                        <div class="mini-guide-title">Как оформить заказ v1.2</div>
+                        <div class="mini-guide-date">25.10.2023</div>
+                    </div>
+                </a>
+                <a href="http://localhost:3000" target="_blank" class="mini-guide-card">
+                    <div class="mini-guide-preview">
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 28'%3E%3Crect fill='%23E2E8F0' width='40' height='28'/%3E%3Crect x='4' y='4' width='32' height='8' rx='2' fill='%23CBD5E1'/%3E%3Crect x='4' y='16' width='20' height='6' rx='1' fill='%23CBD5E1'/%3E%3C/svg%3E" alt="Preview">
+                    </div>
+                    <div class="mini-guide-info">
+                        <div class="mini-guide-title">Обновление профиля</div>
+                        <div class="mini-guide-date">23.10.2023</div>
+                    </div>
+                </a>
+                <a href="http://localhost:3000" target="_blank" class="mini-guide-card">
+                    <div class="mini-guide-preview">
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 28'%3E%3Crect fill='%23E2E8F0' width='40' height='28'/%3E%3Crect x='4' y='4' width='32' height='8' rx='2' fill='%23CBD5E1'/%3E%3Crect x='4' y='16' width='20' height='6' rx='1' fill='%23CBD5E1'/%3E%3C/svg%3E" alt="Preview">
+                    </div>
+                    <div class="mini-guide-info">
+                        <div class="mini-guide-title">Настройка уведомлений</div>
+                        <div class="mini-guide-date">20.10.2023</div>
+                    </div>
+                </a>
+            </div>
         </div>
+
+        <!-- Footer Actions -->
+        <footer class="popup-footer">
+            <a href="http://localhost:3000" target="_blank" class="footer-link">
+                <i class="fas fa-external-link-alt"></i>
+                <span>Мои гайды</span>
+            </a>
+            <button id="settingsBtn" class="settings-btn">
+                <i class="fas fa-cog"></i>
+                <span>Настройки</span>
+            </button>
+        </footer>
     </div>
-    
-    <div class="session-name">
-        <label for="sessionName">Session Name</label>
-        <input type="text" id="sessionName" placeholder="e.g., How to Create Invoice">
-    </div>
-    
-    <div class="control-buttons">
-        <button class="btn btn-primary" id="startBtn">Start Recording</button>
-        <button class="btn btn-danger" id="stopBtn" disabled>Stop</button>
-    </div>
-    
-    <div class="actions">
-        <button class="action-btn" id="viewGuidesBtn">
-            <span class="action-icon">📋</span>
-            <span>View All Guides</span>
-        </button>
-        <button class="action-btn" id="openEditorBtn" disabled>
-            <span class="action-icon">✏️</span>
-            <span>Open Editor</span>
-        </button>
-    </div>
-    
-    <div class="footer">
-        <a href="#" id="settingsLink">Settings</a>
-    </div>
-    
+
     <script src="popup.js"></script>
 </body>
 </html>

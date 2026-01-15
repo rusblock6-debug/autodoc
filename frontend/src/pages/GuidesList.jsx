@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { guidesApi } from '../services/api'
-import { DocumentTextIcon, ClockIcon, PlayIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { 
+  DocumentTextIcon, 
+  ClockIcon, 
+  PlayIcon, 
+  PencilIcon, 
+  TrashIcon,
+  PlusIcon 
+} from '@heroicons/react/24/outline'
 
 function GuidesList() {
   const [guides, setGuides] = useState([])

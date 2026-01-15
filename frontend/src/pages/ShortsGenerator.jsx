@@ -1,347 +1,243 @@
-import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { guidesApi, shortsApi } from '../services/api'
-import { 
-  ArrowLeftIcon, 
-  VideoCameraIcon, 
-  PlayIcon, 
-  ArrowPathIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon
-} from '@heroicons/react/24/outline'
+import React, { useState, useEffect } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import api from '../services/api';
 
 function ShortsGenerator() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [guide, setGuide] = useState(null)
-  const [steps, setSteps] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [generationStatus, setGenerationStatus] = useState('idle') // idle, generating, completed, failed
-  const [taskId, setTaskId] = useState(null)
-  const [progress, setProgress] = useState(0)
-  const [selectedVoice, setSelectedVoice] = useState('ru-RU-SvetlanaNeural')
-  const [videoUrl, setVideoUrl] = useState(null)
-
-  const voices = [
-    { id: 'ru-RU-SvetlanaNeural', name: 'Russian Female (Svetlana)', lang: 'ru' },
-    { id: 'ru-RU-DmitryNeural', name: 'Russian Male (Dmitry)', lang: 'ru' },
-    { id: 'en-US-JennyNeural', name: 'English Female (Jenny)', lang: 'en' },
-    { id: 'en-US-GuyNeural', name: 'English Male (Guy)', lang: 'en' }
-  ]
+  const { id } = useParams();
+  const [guide, setGuide] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [shortsReady, setShortsReady] = useState(false);
 
   useEffect(() => {
-    fetchGuide()
-  }, [id])
-
-  useEffect(() => {
-    if (taskId && generationStatus === 'generating') {
-      const interval = setInterval(checkStatus, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [taskId, generationStatus])
+    fetchGuide();
+  }, [id]);
 
   const fetchGuide = async () => {
     try {
-      setLoading(true)
-      const [guideData, stepsData] = await Promise.all([
-        guidesApi.getById(id),
-        stepsApi.getByGuideId(id)
-      ])
-      setGuide(guideData)
-      setSteps(stepsData.items || [])
+      const response = await api.get(`/guides/${id}`);
+      setGuide(response.data);
     } catch (error) {
-      console.error('Failed to fetch guide:', error)
+      console.error('Error fetching guide:', error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const checkStatus = async () => {
+  const startGeneration = async () => {
+    setGenerating(true);
+    setProgress(0);
+
     try {
-      const response = await shortsApi.getStatus(taskId)
-      setProgress(response.progress || 0)
+      const response = await api.post(`/guides/${id}/shorts`);
       
-      if (response.status === 'completed') {
-        setGenerationStatus('completed')
-        setVideoUrl(response.video_url)
-      } else if (response.status === 'failed') {
-        setGenerationStatus('failed')
-      }
+      // Simulate progress
+      const interval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(interval);
+            setShortsReady(true);
+            setGenerating(false);
+            return 100;
+          }
+          return prev + 5;
+        });
+      }, 200);
     } catch (error) {
-      console.error('Failed to check status:', error)
+      console.error('Error generating shorts:', error);
+      setGenerating(false);
+      alert('Ошибка при генерации видео');
     }
-  }
+  };
 
-  const handleGenerate = async () => {
+  const downloadShorts = async () => {
     try {
-      setGenerationStatus('generating')
-      setProgress(0)
+      const response = await api.get(`/guides/${id}/shorts/download`, {
+        responseType: 'blob'
+      });
       
-      const response = await shortsApi.generate(id, {
-        voice: selectedVoice,
-        format: 'vertical', // 9:16 aspect ratio
-        quality: 'high'
-      })
-      
-      setTaskId(response.task_id)
-      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${guide.title}_shorts.zip`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (error) {
-      console.error('Generation failed:', error)
-      setGenerationStatus('failed')
+      console.error('Error downloading shorts:', error);
+      alert('Ошибка при скачивании');
     }
-  }
-
-  const handleDownload = async () => {
-    try {
-      const blob = await shortsApi.download(taskId)
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${guide.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_shorts.mp4`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-    } catch (error) {
-      console.error('Download failed:', error)
-    }
-  }
-
-  const handleRegenerate = () => {
-    setGenerationStatus('idle')
-    setVideoUrl(null)
-    setTaskId(null)
-    setProgress(0)
-  }
+  };
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="spinner"></div>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <button
-          onClick={() => navigate(`/guides/${id}/edit`)}
-          className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeftIcon className="w-5 h-5 mr-2" />
-          Back to editor
-        </button>
-        
-        <h1 className="text-3xl font-bold text-gray-900">Generate Shorts</h1>
-        <p className="mt-2 text-gray-600">
-          Create vertical videos with voice narration for social media platforms
-        </p>
-      </div>
+    <div className="notion-style dashboard-page">
+      <div className="notion-container">
+        {/* Sidebar */}
+        <aside className="notion-sidebar">
+          <div className="sidebar-section">
+            <Link to="/" className="sidebar-item">
+              <i className="fas fa-file-alt"></i>
+              <span>Мои гайды</span>
+            </Link>
+            <Link to={`/editor/${id}`} className="sidebar-item">
+              <i className="fas fa-edit"></i>
+              <span>Редактор</span>
+            </Link>
+            <a href="#" className="sidebar-item active">
+              <i className="fas fa-video"></i>
+              <span>Создать шортс</span>
+            </a>
+          </div>
+        </aside>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Settings Panel */}
-        <div className="lg:col-span-1">
-          <div className="card sticky top-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Settings</h2>
-            
-            <div className="space-y-6">
-              {/* Voice Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Voice Narration
-                </label>
-                <div className="space-y-2">
-                  {voices.map((voice) => (
-                    <label key={voice.id} className="flex items-center">
-                      <input
-                        type="radio"
-                        name="voice"
-                        value={voice.id}
-                        checked={selectedVoice === voice.id}
-                        onChange={(e) => setSelectedVoice(e.target.value)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500"
-                        disabled={generationStatus === 'generating'}
-                      />
-                      <span className="ml-3 text-sm text-gray-700">
-                        {voice.name}
-                      </span>
-                    </label>
-                  ))}
+        {/* Main Content */}
+        <main className="notion-main">
+          {/* Top Bar */}
+          <header className="notion-topbar">
+            <div className="topbar-left">
+              <Link to="/" className="notion-back-btn">
+                <i className="fas fa-arrow-left"></i>
+              </Link>
+              <div className="notion-breadcrumb">
+                <i className="fas fa-file-alt"></i>
+                <span>Мои гайды</span>
+                <i className="fas fa-chevron-right"></i>
+                <span>{guide?.title}</span>
+                <i className="fas fa-chevron-right"></i>
+                <span>Создать шортс</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Content Area */}
+          <div className="notion-content">
+            <div className="notion-page-header">
+              <h1>Создание видео-гайда</h1>
+            </div>
+
+            <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+              {/* Preview */}
+              <div className="notion-short-preview" style={{ marginBottom: 'var(--space-6)' }}>
+                <div className="notion-slideshow">
+                  <div className="slide active">
+                    <img
+                      src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 700'%3E%3Crect fill='%23FAFAF9' width='400' height='700'/%3E%3Crect x='20' y='20' width='360' height='28' rx='4' fill='%23E7E5E4'/%3E%3Crect x='40' y='100' width='320' height='44' rx='4' fill='%2337352F'/%3E%3Ctext x='200' y='130' font-family='Inter' font-size='14' fill='white' text-anchor='middle' font-weight='500'%3EШаг ${currentSlide + 1}%3C/text%3E%3C/svg%3E`}
+                      alt={`Слайд ${currentSlide + 1}`}
+                    />
+                    <span className="slide-counter">{currentSlide + 1} / {guide?.steps?.length || 0}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Guide Info */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium text-gray-900 mb-2">Guide Details</h3>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <div><span className="font-medium">Title:</span> {guide?.title}</div>
-                  <div><span className="font-medium">Steps:</span> {steps.length}</div>
-                  <div><span className="font-medium">Duration:</span> ~{steps.length * 5}s</div>
-                </div>
+              {/* Info */}
+              <div style={{
+                background: 'var(--notion-bg-secondary)',
+                padding: 'var(--space-4)',
+                borderRadius: 'var(--radius-lg)',
+                marginBottom: 'var(--space-5)'
+              }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--notion-gray-800)', marginBottom: 'var(--space-2)' }}>
+                  <i className="fas fa-info-circle"></i> Информация
+                </h3>
+                <ul style={{ fontSize: '13px', color: 'var(--notion-gray-600)', paddingLeft: 'var(--space-5)' }}>
+                  <li>Формат: вертикальное видео 9:16 (1080x1920)</li>
+                  <li>Количество слайдов: {guide?.steps?.length || 0}</li>
+                  <li>Озвучка: автоматическая генерация</li>
+                  <li>Длительность: ~{(guide?.steps?.length || 0) * 5} секунд</li>
+                </ul>
               </div>
 
-              {/* Action Buttons */}
-              {generationStatus === 'idle' && (
-                <button
-                  onClick={handleGenerate}
-                  disabled={steps.length === 0}
-                  className="btn-primary w-full flex items-center justify-center space-x-2 disabled:opacity-50"
-                >
-                  <VideoCameraIcon className="w-5 h-5" />
-                  <span>Generate Shorts</span>
-                </button>
-              )}
-
-              {generationStatus === 'generating' && (
-                <div className="space-y-4">
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <ArrowPathIcon className="w-5 h-5 text-blue-500 animate-spin mr-2" />
-                      <span className="text-blue-800 font-medium">Generating...</span>
-                    </div>
+              {/* Progress */}
+              {generating && (
+                <div className="notion-progress" style={{ marginBottom: 'var(--space-5)' }}>
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${progress}%` }}></div>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Progress</span>
-                      <span>{Math.round(progress)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${progress}%` }}
-                      ></div>
-                    </div>
-                  </div>
+                  <p>Генерация видео: {progress}%</p>
                 </div>
               )}
 
-              {generationStatus === 'completed' && (
-                <div className="space-y-3">
-                  <div className="bg-green-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <CheckCircleIcon className="w-5 h-5 text-green-500 mr-2" />
-                      <span className="text-green-800 font-medium">Ready!</span>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={handleDownload}
-                    className="btn-success w-full flex items-center justify-center space-x-2"
-                  >
-                    <PlayIcon className="w-5 h-5" />
-                    <span>Download Video</span>
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center' }}>
+                {!generating && !shortsReady && (
+                  <button className="notion-btn notion-btn-primary notion-btn-large" onClick={startGeneration}>
+                    <i className="fas fa-play"></i>
+                    <span>Начать генерацию</span>
                   </button>
-                  
+                )}
+
+                {generating && (
+                  <button className="notion-btn notion-btn-secondary notion-btn-large" disabled>
+                    <i className="fas fa-spinner fa-spin"></i>
+                    <span>Генерация...</span>
+                  </button>
+                )}
+
+                {shortsReady && (
+                  <>
+                    <button className="notion-btn notion-btn-secondary" onClick={() => {
+                      setShortsReady(false);
+                      setProgress(0);
+                    }}>
+                      <i className="fas fa-redo"></i>
+                      <span>Создать заново</span>
+                    </button>
+                    <button className="notion-btn notion-btn-primary" onClick={downloadShorts}>
+                      <i className="fas fa-download"></i>
+                      <span>Скачать ZIP</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Navigation */}
+              {guide?.steps && guide.steps.length > 1 && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  gap: 'var(--space-2)',
+                  marginTop: 'var(--space-5)'
+                }}>
                   <button
-                    onClick={handleRegenerate}
-                    className="btn-secondary w-full flex items-center justify-center space-x-2"
+                    className="notion-btn-icon"
+                    onClick={() => setCurrentSlide(Math.max(0, currentSlide - 1))}
+                    disabled={currentSlide === 0}
                   >
-                    <ArrowPathIcon className="w-5 h-5" />
-                    <span>Regenerate</span>
+                    <i className="fas fa-chevron-left"></i>
+                  </button>
+                  <button
+                    className="notion-btn-icon"
+                    onClick={() => setCurrentSlide(Math.min(guide.steps.length - 1, currentSlide + 1))}
+                    disabled={currentSlide === guide.steps.length - 1}
+                  >
+                    <i className="fas fa-chevron-right"></i>
                   </button>
                 </div>
               )}
 
-              {generationStatus === 'failed' && (
-                <div className="space-y-3">
-                  <div className="bg-red-50 rounded-lg p-4">
-                    <div className="flex items-center">
-                      <ExclamationTriangleIcon className="w-5 h-5 text-red-500 mr-2" />
-                      <span className="text-red-800 font-medium">Generation Failed</span>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={handleRegenerate}
-                    className="btn-primary w-full"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              )}
+              {/* Back Link */}
+              <div style={{ textAlign: 'center', marginTop: 'var(--space-6)' }}>
+                <Link to={`/editor/${id}`} className="notion-btn notion-btn-secondary">
+                  <i className="fas fa-arrow-left"></i>
+                  <span>Назад к редактору</span>
+                </Link>
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Preview Panel */}
-        <div className="lg:col-span-2">
-          <div className="card">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Preview</h2>
-            
-            {generationStatus === 'completed' && videoUrl ? (
-              <div className="space-y-4">
-                <div className="aspect-[9/16] bg-black rounded-lg overflow-hidden">
-                  <video
-                    src={videoUrl}
-                    controls
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-                
-                <div className="text-center text-sm text-gray-500">
-                  Your vertical Shorts video is ready for download
-                </div>
-              </div>
-            ) : generationStatus === 'generating' ? (
-              <div className="aspect-[9/16] bg-gray-200 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <ArrowPathIcon className="w-12 h-12 text-gray-400 animate-spin mx-auto mb-3" />
-                  <p className="text-gray-500">Generating your video...</p>
-                  <p className="text-sm text-gray-400 mt-1">This may take a few minutes</p>
-                </div>
-              </div>
-            ) : (
-              <div className="aspect-[9/16] bg-gray-100 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <VideoCameraIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">Video preview will appear here</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {steps.length === 0 
-                      ? 'Add steps to your guide first' 
-                      : 'Click "Generate Shorts" to create your video'}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Steps Preview */}
-          <div className="card mt-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Steps Included</h2>
-            
-            {steps.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <p>No steps available</p>
-                <p className="text-sm mt-1">Add steps in the editor first</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {steps.map((step, index) => (
-                  <div key={step.id} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center text-sm font-medium">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900">{step.text}</p>
-                      {step.screenshot_url && (
-                        <img 
-                          src={step.screenshot_url} 
-                          alt={`Step ${index + 1}`} 
-                          className="mt-2 w-16 h-16 object-cover rounded border"
-                        />
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        </main>
       </div>
     </div>
-  )
+  );
 }
 
-export default ShortsGenerator
+export default ShortsGenerator;

@@ -1,155 +1,144 @@
-// extension/content.js - Captures click events and logs them for the MVP workflow
-// This script runs in the context of the captured tab
+// AutoDoc AI - Content Script
+// Отслеживание кликов пользователя на странице
 
-// State management
-let isRecording = false;
-let clickLog = [];
-let lastClickTime = 0;
+console.log('AutoDoc AI Content Script loaded')
 
-// Click event listener
-document.addEventListener('click', (event) => {
-    if (!isRecording) return;
-    
-    const clickData = {
-        timestamp: Date.now(),
-        x: event.clientX,
-        y: event.clientY,
-        tagName: event.target.tagName,
-        className: event.target.className || '',
-        id: event.target.id || '',
-        text: (event.target.textContent || '').substring(0, 100),
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight
-    };
-    
-    clickLog.push(clickData);
-    lastClickTime = clickData.timestamp;
-    
-    // Visual feedback - brief highlight
-    highlightClick(event.clientX, event.clientY);
-    
-    // Send to background script
-    chrome.runtime.sendMessage({
-        type: 'CLICK_LOG',
-        data: clickData
-    });
-});
+let isTracking = false
+let clickMarker = null
 
-// Keyboard event listener (optional - for tracking interactions)
-document.addEventListener('keydown', (event) => {
-    if (!isRecording) return;
-    
-    const keyData = {
-        timestamp: Date.now(),
-        key: event.key,
-        code: event.code,
-        tagName: event.target.tagName,
-        keyType: 'keyboard'
-    };
-    
-    chrome.runtime.sendMessage({
-        type: 'KEY_LOG',
-        data: keyData
-    });
-});
+// Start tracking clicks
+function startTracking() {
+  if (isTracking) return
+  
+  isTracking = true
+  document.addEventListener('click', handleClick, true)
+  console.log('Click tracking started')
+}
 
-// Input field tracking
-document.addEventListener('input', (event) => {
-    if (!isRecording) return;
-    
-    const inputData = {
-        timestamp: Date.now(),
-        tagName: event.target.tagName,
-        type: event.target.type || 'text',
-        valueLength: event.target.value ? event.target.value.length : 0,
-        keyType: 'input'
-    };
-    
-    chrome.runtime.sendMessage({
-        type: 'INPUT_LOG',
-        data: inputData
-    });
-});
+// Stop tracking clicks
+function stopTracking() {
+  if (!isTracking) return
+  
+  isTracking = false
+  document.removeEventListener('click', handleClick, true)
+  removeMarker()
+  console.log('Click tracking stopped')
+}
 
-// Visual feedback for clicks
-function highlightClick(x, y) {
-    const circle = document.createElement('div');
-    circle.style.cssText = `
-        position: fixed;
-        left: ${x - 15}px;
-        top: ${y - 15}px;
-        width: 30px;
-        height: 30px;
-        border: 3px solid #FFD700;
-        border-radius: 50%;
-        pointer-events: none;
-        z-index: 999999;
-        animation: clickPulse 0.5s ease-out forwards;
-    `;
-    
-    // Add animation if not exists
-    if (!document.getElementById('clickAnimationStyle')) {
-        const style = document.createElement('style');
-        style.id = 'clickAnimationStyle';
-        style.textContent = `
-            @keyframes clickPulse {
-                0% { transform: scale(0.5); opacity: 1; }
-                100% { transform: scale(2); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
+// Handle click event
+function handleClick(event) {
+  if (!isTracking) return
+  
+  const x = event.clientX
+  const y = event.clientY
+  const pageX = event.pageX
+  const pageY = event.pageY
+  
+  // Get element info
+  const element = event.target
+  const elementInfo = {
+    tagName: element.tagName,
+    id: element.id || null,
+    className: element.className || null,
+    text: element.textContent?.substring(0, 50) || null
+  }
+  
+  // Show visual marker
+  showClickMarker(x, y)
+  
+  // Send to background script
+  chrome.runtime.sendMessage({
+    action: 'recordClick',
+    x: x,
+    y: y,
+    pageX: pageX,
+    pageY: pageY,
+    screenWidth: window.innerWidth,
+    screenHeight: window.innerHeight,
+    element: elementInfo
+  })
+  
+  // Notify popup
+  chrome.runtime.sendMessage({
+    action: 'clickRecorded'
+  })
+  
+  console.log('Click recorded:', { x, y, element: elementInfo })
+}
+
+// Show visual marker at click position
+function showClickMarker(x, y) {
+  // Remove previous marker
+  removeMarker()
+  
+  // Create marker element
+  clickMarker = document.createElement('div')
+  clickMarker.id = 'autodoc-click-marker'
+  clickMarker.style.cssText = `
+    position: fixed;
+    left: ${x}px;
+    top: ${y}px;
+    width: 40px;
+    height: 40px;
+    margin-left: -20px;
+    margin-top: -20px;
+    border-radius: 50%;
+    background: rgba(255, 215, 0, 0.3);
+    border: 3px solid #FFD700;
+    pointer-events: none;
+    z-index: 999999;
+    animation: autodoc-pulse 0.6s ease-out;
+  `
+  
+  // Add animation
+  const style = document.createElement('style')
+  style.textContent = `
+    @keyframes autodoc-pulse {
+      0% {
+        transform: scale(0.5);
+        opacity: 1;
+      }
+      100% {
+        transform: scale(1.5);
+        opacity: 0;
+      }
     }
-    
-    document.body.appendChild(circle);
-    setTimeout(() => circle.remove(), 500);
+  `
+  document.head.appendChild(style)
+  
+  document.body.appendChild(clickMarker)
+  
+  // Remove after animation
+  setTimeout(() => {
+    removeMarker()
+  }, 600)
+}
+
+// Remove marker
+function removeMarker() {
+  if (clickMarker && clickMarker.parentNode) {
+    clickMarker.parentNode.removeChild(clickMarker)
+    clickMarker = null
+  }
 }
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    switch (message.type) {
-        case 'START_RECORDING':
-            isRecording = true;
-            clickLog = [];
-            lastClickTime = Date.now();
-            console.log('[AutoDoc] Recording started');
-            sendResponse({ success: true });
-            break;
-            
-        case 'STOP_RECORDING':
-            isRecording = false;
-            console.log('[AutoDoc] Recording stopped, clicks:', clickLog.length);
-            sendResponse({ 
-                success: true, 
-                clickCount: clickLog.length,
-                duration: lastClickTime - (clickLog[0]?.timestamp || Date.now())
-            });
-            break;
-            
-        case 'GET_CLICK_LOG':
-            sendResponse({ 
-                success: true, 
-                clicks: clickLog,
-                lastClickTime: lastClickTime
-            });
-            break;
-            
-        case 'CLEAR_LOG':
-            clickLog = [];
-            sendResponse({ success: true });
-            break;
-    }
-    return true;
-});
+  if (message.action === 'startTracking') {
+    startTracking()
+    sendResponse({ success: true })
+  } else if (message.action === 'stopTracking') {
+    stopTracking()
+    sendResponse({ success: true })
+  }
+})
 
-// Report page info on load
-window.addEventListener('load', () => {
-    chrome.runtime.sendMessage({
-        type: 'PAGE_INFO',
-        data: {
-            url: window.location.href,
-            title: document.title,
-            width: window.innerWidth,
-            height: window.innerHeight
-        }
-    });
-});
+// Auto-start tracking if recording is active
+chrome.storage.local.get(['recordingState'], (result) => {
+  if (result.recordingState && result.recordingState.isRecording) {
+    startTracking()
+  }
+})
+
+// Start tracking immediately (will be active during recording)
+startTracking()

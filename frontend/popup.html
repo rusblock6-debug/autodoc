@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoDoc AI</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="notion-style popup-page">
+    <div class="notion-popup">
+        <!-- Header -->
+        <header class="notion-header popup-header">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <i class="fas fa-file-alt"></i>
+                </div>
+                <span class="logo-text">AutoDoc AI</span>
+            </div>
+        </header>
+
+        <!-- Status -->
+        <div class="status-section">
+            <div class="status-indicator notion-inline-flex">
+                <span class="status-dot"></span>
+                <span class="status-text">Готов к записи</span>
+            </div>
+        </div>
+
+        <!-- Timer -->
+        <div id="timerDisplay" class="timer-display notion-inline-flex" style="display: none;">
+            <i class="fas fa-clock"></i>
+            <span id="timerText">00:00</span>
+        </div>
+
+        <!-- Main Action Button -->
+        <div class="action-section">
+            <button id="startRecordBtn" class="notion-btn notion-btn-primary notion-btn-large">
+                <i class="fas fa-circle" style="color: #FF6B6B;"></i>
+                <span>Начать запись</span>
+            </button>
+
+            <button id="stopRecordBtn" class="notion-btn notion-btn-secondary notion-btn-large" style="display: none;">
+                <i class="fas fa-stop"></i>
+                <span>Остановить запись</span>
+            </button>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="notion-section">
+            <h3 class="notion-section-title">Быстрые действия</h3>
+            <div class="notion-action-list">
+                <button class="notion-action-item" onclick="startRecording()">
+                    <div class="action-icon">
+                        <i class="fas fa-play"></i>
+                    </div>
+                    <span>Новая запись</span>
+                    <span class="notion-shortcut">Ctrl+R</span>
+                </button>
+                <button class="notion-action-item" onclick="openSettings()">
+                    <div class="action-icon">
+                        <i class="fas fa-sliders-h"></i>
+                    </div>
+                    <span>Настройки</span>
+                </button>
+                <a href="index.html" target="_blank" class="notion-action-item">
+                    <div class="action-icon">
+                        <i class="fas fa-folder"></i>
+                    </div>
+                    <span>Мои гайды</span>
+                    <i class="fas fa-external-link-alt action-arrow"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- Recent Guides -->
+        <div class="notion-section">
+            <h3 class="notion-section-title">Недавние</h3>
+            <div id="recentGuidesList" class="notion-recent-list">
+                <a href="editor.html?id=1" class="notion-recent-item">
+                    <i class="far fa-file-alt"></i>
+                    <span>Как оформить заказ v1.2</span>
+                </a>
+                <a href="editor.html?id=2" class="notion-recent-item">
+                    <i class="far fa-file-alt"></i>
+                    <span>Обновление профиля</span>
+                </a>
+                <a href="editor.html?id=3" class="notion-recent-item">
+                    <i class="far fa-file-alt"></i>
+                    <span>Настройка уведомлений</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="notion-footer popup-footer">
+            <span class="version">v1.0</span>
+            <button class="notion-icon-btn" onclick="openSettings()">
+                <i class="fas fa-cog"></i>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="notion-modal-overlay" style="display: none;">
+        <div class="notion-modal">
+            <div class="notion-modal-header">
+                <h2>Настройки</h2>
+                <button class="notion-icon-btn" onclick="closeSettings()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="notion-modal-body">
+                <div class="notion-setting-row">
+                    <label>Качество записи</label>
+                    <select class="notion-select">
+                        <option>Высокое (1080p)</option>
+                        <option selected>Среднее (720p)</option>
+                        <option>Низкое (480p)</option>
+                    </select>
+                </div>
+                <div class="notion-setting-row">
+                    <label>Качество звука</label>
+                    <select class="notion-select">
+                        <option>Высокое</option>
+                        <option selected>Среднее</option>
+                        <option>Экономия трафика</option>
+                    </select>
+                </div>
+                <div class="notion-setting-row">
+                    <label>Горячая клавиша</label>
+                    <input type="text" class="notion-input" value="Ctrl+Shift+R" readonly>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/popup.js"></script>
+</body>
+</html>

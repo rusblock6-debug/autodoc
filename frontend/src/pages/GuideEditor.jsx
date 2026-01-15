@@ -1,410 +1,450 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { DndProvider, useDrag, useDrop } from 'react-dnd'
-import { HTML5Backend } from 'react-dnd-html5-backend'
-import { guidesApi, stepsApi } from '../services/api'
-import { 
-  ArrowLeftIcon, 
-  ArrowPathIcon, 
-  ArrowsPointingOutIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  TrashIcon,
-  PencilIcon,
-  CheckIcon,
-  XMarkIcon
-} from '@heroicons/react/24/outline'
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import api from '../services/api';
 
-// Draggable marker component
-const Marker = ({ step, onUpdatePosition }) => {
-  const [{ isDragging }, drag] = useDrag(() => ({
-    type: 'marker',
-    item: { id: step.id, x: step.click_x, y: step.click_y },
-    collect: (monitor) => ({
-      isDragging: !!monitor.isDragging(),
-    }),
-  }))
-
-  const handleMouseDown = (e) => {
-    e.preventDefault()
-    const rect = e.currentTarget.parentElement.getBoundingClientRect()
-    const startX = e.clientX - rect.left
-    const startY = e.clientY - rect.top
-    
-    const handleMouseMove = (moveEvent) => {
-      const newX = Math.max(0, Math.min(rect.width - 32, moveEvent.clientX - rect.left - 16))
-      const newY = Math.max(0, Math.min(rect.height - 32, moveEvent.clientY - rect.top - 16))
-      onUpdatePosition(step.id, newX, newY)
-    }
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }
-
-  return (
-    <div
-      ref={drag}
-      className="click-marker"
-      style={{
-        left: `${step.click_x}px`,
-        top: `${step.click_y}px`,
-        opacity: isDragging ? 0.5 : 1,
-        cursor: 'move'
-      }}
-      onMouseDown={handleMouseDown}
-    />
-  )
-}
-
-// Step card component
-const StepCard = ({ step, index, onUpdate, onDelete, onMove, totalSteps }) => {
-  const [isEditing, setIsEditing] = useState(false)
-  const [editText, setEditText] = useState(step.text)
-  const textareaRef = useRef(null)
-
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus()
-      textareaRef.current.select()
-    }
-  }, [isEditing])
-
-  const handleSave = () => {
-    if (editText.trim()) {
-      onUpdate(step.id, { text: editText.trim() })
-      setIsEditing(false)
-    }
-  }
-
-  const handleCancel = () => {
-    setEditText(step.text)
-    setIsEditing(false)
-  }
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && e.ctrlKey) {
-      handleSave()
-    } else if (e.key === 'Escape') {
-      handleCancel()
-    }
-  }
-
-  return (
-    <div className="step-card p-4">
-      <div className="flex items-start space-x-4">
-        {/* Step number */}
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-medium">
-          {index + 1}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <div className="space-y-3">
-              <textarea
-                ref={textareaRef}
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="input-field w-full"
-                rows={3}
-              />
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleSave}
-                  className="btn-success flex items-center space-x-1"
-                >
-                  <CheckIcon className="w-4 h-4" />
-                  <span>Save</span>
-                </button>
-                <button
-                  onClick={handleCancel}
-                  className="btn-secondary flex items-center space-x-1"
-                >
-                  <XMarkIcon className="w-4 h-4" />
-                  <span>Cancel</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="group">
-              <p className="text-gray-900">{step.text}</p>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="mt-2 text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <PencilIcon className="w-4 h-4" />
-                <span>Edit text</span>
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex-shrink-0 flex space-x-1">
-          {index > 0 && (
-            <button
-              onClick={() => onMove(index, index - 1)}
-              className="p-1 text-gray-400 hover:text-gray-600"
-              title="Move up"
-            >
-              <ChevronLeftIcon className="w-5 h-5 rotate-90" />
-            </button>
-          )}
-          {index < totalSteps - 1 && (
-            <button
-              onClick={() => onMove(index, index + 1)}
-              className="p-1 text-gray-400 hover:text-gray-600"
-              title="Move down"
-            >
-              <ChevronRightIcon className="w-5 h-5 -rotate-90" />
-            </button>
-          )}
-          <button
-            onClick={() => onDelete(step.id)}
-            className="p-1 text-gray-400 hover:text-red-500"
-            title="Delete step"
-          >
-            <TrashIcon className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Main editor component
 function GuideEditor() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [guide, setGuide] = useState(null)
-  const [steps, setSteps] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [imageLoaded, setImageLoaded] = useState(false)
-  const imageRef = useRef(null)
+  const { id } = useParams();
+  const [guide, setGuide] = useState(null);
+  const [steps, setSteps] = useState([]);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [instruction, setInstruction] = useState('');
+  const [markerPosition, setMarkerPosition] = useState({ x: 68, y: 55 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [shortsModalOpen, setShortsModalOpen] = useState(false);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [openStepMenu, setOpenStepMenu] = useState(null);
+  
+  const screenshotContainerRef = useRef(null);
+  const markerRef = useRef(null);
 
   useEffect(() => {
-    fetchGuide()
-  }, [id])
+    if (id) {
+      fetchGuide();
+    }
+  }, [id]);
 
   const fetchGuide = async () => {
     try {
-      setLoading(true)
-      const [guideData, stepsData] = await Promise.all([
-        guidesApi.getById(id),
-        stepsApi.getByGuideId(id)
-      ])
-      setGuide(guideData)
-      setSteps(stepsData.items || [])
-    } catch (error) {
-      console.error('Failed to fetch guide:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleMarkerUpdate = async (stepId, x, y) => {
-    try {
-      // Convert pixel coordinates to relative coordinates (0-1)
-      const img = imageRef.current
-      if (!img) return
-      
-      const relativeX = x / img.offsetWidth
-      const relativeY = y / img.offsetHeight
-      
-      await stepsApi.update(stepId, {
-        click_x: relativeX,
-        click_y: relativeY
-      })
-      
-      // Update local state
-      setSteps(prev => prev.map(step => 
-        step.id === stepId 
-          ? { ...step, click_x: relativeX, click_y: relativeY }
-          : step
-      ))
-    } catch (error) {
-      console.error('Failed to update marker position:', error)
-    }
-  }
-
-  const handleStepUpdate = async (stepId, updates) => {
-    try {
-      await stepsApi.update(stepId, updates)
-      setSteps(prev => prev.map(step => 
-        step.id === stepId ? { ...step, ...updates } : step
-      ))
-    } catch (error) {
-      console.error('Failed to update step:', error)
-    }
-  }
-
-  const handleStepDelete = async (stepId) => {
-    if (window.confirm('Are you sure you want to delete this step?')) {
-      try {
-        await stepsApi.delete(stepId)
-        setSteps(prev => prev.filter(step => step.id !== stepId))
-      } catch (error) {
-        console.error('Failed to delete step:', error)
+      const response = await api.get(`/guides/${id}`);
+      setGuide(response.data);
+      setTitle(response.data.title);
+      setSteps(response.data.steps || []);
+      if (response.data.steps && response.data.steps.length > 0) {
+        setInstruction(response.data.steps[0].instruction || '');
       }
-    }
-  }
-
-  const handleStepMove = async (fromIndex, toIndex) => {
-    try {
-      const newSteps = [...steps]
-      const [movedStep] = newSteps.splice(fromIndex, 1)
-      newSteps.splice(toIndex, 0, movedStep)
-      
-      // Update step numbers
-      const reorderedSteps = newSteps.map((step, index) => ({
-        ...step,
-        step_number: index + 1
-      }))
-      
-      setSteps(reorderedSteps)
-      
-      // Send reorder request to backend
-      const stepOrder = reorderedSteps.map(step => step.id)
-      await stepsApi.reorder(id, stepOrder)
-      
     } catch (error) {
-      console.error('Failed to reorder steps:', error)
-      fetchGuide() // Re-fetch to restore original order
+      console.error('Error fetching guide:', error);
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
-  const handleRegenerate = async () => {
-    // TODO: Implement regeneration logic
-    console.log('Regenerate clicked')
-  }
+  const handleMouseDown = (e) => {
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || !screenshotContainerRef.current) return;
+
+    const rect = screenshotContainerRef.current.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    let y = e.clientY - rect.top;
+
+    const markerSize = 40;
+    x = Math.max(markerSize / 2, Math.min(x, rect.width - markerSize / 2));
+    y = Math.max(markerSize / 2, Math.min(y, rect.height - markerSize / 2));
+
+    const percentX = (x / rect.width) * 100;
+    const percentY = (y / rect.height) * 100;
+
+    setMarkerPosition({ x: percentX, y: percentY });
+    setHasChanges(true);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    } else {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const saveDraft = async () => {
+    try {
+      await api.put(`/guides/${id}`, {
+        title,
+        steps: steps.map((step, index) => ({
+          ...step,
+          instruction: index === currentStep - 1 ? instruction : step.instruction
+        }))
+      });
+      setHasChanges(false);
+      showNotification('Черновик сохранен');
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      showNotification('Ошибка сохранения');
+    }
+  };
+
+  const addNewStep = () => {
+    const newStep = {
+      step_number: steps.length + 1,
+      instruction: `Новый шаг ${steps.length + 1}`,
+      screenshot_url: null
+    };
+    setSteps([...steps, newStep]);
+    setCurrentStep(steps.length + 1);
+    setHasChanges(true);
+    showNotification('Шаг добавлен');
+  };
+
+  const switchToStep = (stepNum) => {
+    setCurrentStep(stepNum);
+    const step = steps[stepNum - 1];
+    if (step) {
+      setInstruction(step.instruction || '');
+    }
+  };
+
+  const toggleStepMenu = (stepNum) => {
+    setOpenStepMenu(openStepMenu === stepNum ? null : stepNum);
+  };
+
+  const showNotification = (message) => {
+    // Simple notification implementation
+    const notification = document.createElement('div');
+    notification.className = 'editor-notification';
+    notification.textContent = message;
+    notification.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 24px;
+      background: #37352F;
+      color: white;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 1001;
+      animation: slideUp 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => {
+      notification.style.animation = 'fadeOut 0.3s ease forwards';
+      setTimeout(() => notification.remove(), 300);
+    }, 2000);
+  };
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div className="spinner"></div>
       </div>
-    )
-  }
-
-  if (!guide) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-500">Guide not found</p>
-      </div>
-    )
+    );
   }
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate('/guides')}
-            className="flex items-center text-gray-600 hover:text-gray-900 mb-4"
+    <div className="notion-style editor-page">
+      {/* Top Bar */}
+      <header className="notion-topbar notion-topbar-editor">
+        <div className="topbar-left">
+          <Link to="/" className="notion-back-btn">
+            <i className="fas fa-arrow-left"></i>
+          </Link>
+          <div className="notion-breadcrumb">
+            <i className="fas fa-file-alt"></i>
+            <span>Мои гайды</span>
+            <i className="fas fa-chevron-right"></i>
+            <span>{title}</span>
+          </div>
+        </div>
+        <div className="topbar-right">
+          <button 
+            className={`notion-btn notion-btn-secondary ${hasChanges ? 'changed' : ''}`}
+            onClick={saveDraft}
           >
-            <ArrowLeftIcon className="w-5 h-5 mr-2" />
-            Back to guides
+            <i className="fas fa-save"></i>
+            <span>{hasChanges ? 'Сохранить' : 'Сохранено'}</span>
           </button>
-          
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{guide.title}</h1>
-              <p className="mt-1 text-gray-600">
-                Edit your step-by-step guide and adjust click positions
-              </p>
+          <button className="notion-btn notion-btn-secondary" onClick={() => setPreviewModalOpen(true)}>
+            <i className="fas fa-eye"></i>
+            <span>Предпросмотр</span>
+          </button>
+          <div className="notion-dropdown">
+            <button 
+              className="notion-btn notion-btn-primary"
+              onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
+            >
+              <i className="fas fa-download"></i>
+              <span>Экспорт</span>
+              <i className="fas fa-caret-down"></i>
+            </button>
+            {exportDropdownOpen && (
+              <div className="notion-dropdown-menu">
+                <a href="#"><i className="fab fa-markdown"></i> Markdown</a>
+                <a href="#"><i className="fas fa-code"></i> HTML</a>
+                <a href="#"><i className="fas fa-file-pdf"></i> PDF</a>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Editor */}
+      <div className="notion-editor-container">
+        {/* Left Panel - Canvas */}
+        <div className="notion-editor-main">
+          {/* Document Title */}
+          <div className="notion-doc-header">
+            <input
+              type="text"
+              className="notion-title-input"
+              value={title}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setHasChanges(true);
+              }}
+              placeholder="Название гайда..."
+            />
+          </div>
+
+          {/* Canvas Area */}
+          <div className="notion-canvas">
+            <div className="notion-canvas-header">
+              <div className="step-indicator">
+                <span className="step-number">
+                  Шаг <strong>{currentStep}</strong>
+                </span>
+                <span className="step-total">из <span>{steps.length}</span></span>
+              </div>
+              <p className="step-hint">Перетащите маркер на нужный элемент</p>
             </div>
-            <div className="flex space-x-3">
-              <button
-                onClick={handleRegenerate}
-                className="btn-secondary flex items-center space-x-2"
+
+            <div className="notion-canvas-wrapper">
+              <div 
+                className="notion-screenshot-container"
+                ref={screenshotContainerRef}
               >
-                <ArrowPathIcon className="w-5 h-5" />
-                <span>Regenerate</span>
+                <img
+                  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 500'%3E%3Crect fill='%23FAFAF9' width='800' height='500'/%3E%3Crect x='20' y='20' width='760' height='36' rx='4' fill='%23E7E5E4'/%3E%3Ccircle cx='44' cy='38' r='10' fill='%23EF4444'/%3E%3Ccircle cx='68' cy='38' r='10' fill='%23F59E0B'/%3E%3Ccircle cx='92' cy='38' r='10' fill='%2322C55E'/%3E%3Crect x='140' y='28' width='180' height='20' rx='4' fill='%23D6D3D1'/%3E%3Crect x='25' y='76' width='280' height='380' rx='6' fill='%23FFFFFF' stroke='%23E7E5E4'/%3E%3Ctext x='45' y='106' font-family='Inter' font-size='14' fill='%23737373'%3EEmail%3C/text%3E%3Crect x='45' y='116' width='240' height='32' rx='4' fill='%23F5F5F4' stroke='%23E5E5E5'/%3E%3Ctext x='45' y='176' font-family='Inter' font-size='14' fill='%23737373'%3EПароль%3C/text%3E%3Crect x='45' y='186' width='240' height='32' rx='4' fill='%23F5F5F4' stroke='%23E5E5E5'/%3E%3Crect x='45' y='246' width='240' height='36' rx='4' fill='%2337352F'/%3E%3Ctext x='165' y='270' font-family='Inter' font-size='13' fill='white' font-weight='500'%3EВойти%3C/text%3E%3Crect x='395' y='76' width='380' height='380' rx='6' fill='%23FFFFFF' stroke='%23E7E5E4'/%3E%3Crect x='415' y='96' width='90' height='28' rx='4' fill='%2337352F'/%3E%3Crect x='415' y='146' width='340' height='22' rx='3' fill='%23E7E5E4'/%3E%3Crect x='415' y='186' width='280' height='22' rx='3' fill='%23E7E5E4'/%3E%3Crect x='415' y='226' width='200' height='22' rx='3' fill='%23E7E5E4'/%3E%3Crect x='415' y='346' width='340' height='44' rx='4' fill='%2322C55E'/%3E%3Ctext x='515' y='378' font-family='Inter' font-size='13' fill='white' font-weight='500'%3EОформить заказ%3C/text%3E%3C/svg%3E"
+                  alt="Screenshot"
+                  className="notion-screenshot-img"
+                />
+
+                {/* Draggable Marker */}
+                <div
+                  ref={markerRef}
+                  className={`notion-marker ${isDragging ? 'dragging' : ''}`}
+                  style={{ left: `${markerPosition.x}%`, top: `${markerPosition.y}%` }}
+                  onMouseDown={handleMouseDown}
+                >
+                  <span className="marker-number">{currentStep}</span>
+                  <div className="marker-ring"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Tools */}
+            <div className="notion-canvas-tools">
+              <button className="notion-tool-btn" title="Увеличить">
+                <i className="fas fa-search-plus"></i>
               </button>
-              <button
-                onClick={() => navigate(`/guides/${id}/export`)}
-                className="btn-primary"
-              >
-                Export Guide
+              <button className="notion-tool-btn" title="Уменьшить">
+                <i className="fas fa-search-minus"></i>
               </button>
+              <button className="notion-tool-btn" title="Размыть область">
+                <i className="fas fa-eye-slash"></i>
+              </button>
+              <button className="notion-tool-btn" title="Нарисовать стрелку">
+                <i className="fas fa-long-arrow-alt-right"></i>
+              </button>
+            </div>
+
+            {/* Instruction */}
+            <div className="notion-instruction-block">
+              <div className="notion-block-header">
+                <i className="fas fa-align-left"></i>
+                <span>Инструкция</span>
+              </div>
+              <textarea
+                className="notion-textarea"
+                rows="3"
+                value={instruction}
+                onChange={(e) => {
+                  setInstruction(e.target.value);
+                  setHasChanges(true);
+                }}
+                placeholder="Введите инструкцию для этого шага..."
+              />
+              <div className="notion-block-footer">
+                <i className="fas fa-info-circle"></i>
+                <span>Исходный текст будет улучшен с помощью AI</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Preview Panel */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Preview</h2>
-            
-            <div className="relative bg-gray-100 rounded-lg overflow-hidden">
-              {guide.screenshots && guide.screenshots[0] ? (
-                <>
+        {/* Right Panel - Steps */}
+        <aside className="notion-steps-sidebar">
+          <div className="notion-sidebar-header">
+            <h3>Шаги</h3>
+            <button className="notion-btn-icon-sm" onClick={addNewStep} title="Добавить шаг">
+              <i className="fas fa-plus"></i>
+            </button>
+          </div>
+
+          <div className="notion-steps-list">
+            {steps.map((step, index) => (
+              <div
+                key={index}
+                className={`notion-step-item ${currentStep === index + 1 ? 'active' : ''}`}
+                onClick={() => switchToStep(index + 1)}
+              >
+                <div className="notion-step-thumb">
                   <img
-                    ref={imageRef}
-                    src={guide.screenshots[0].url}
-                    alt="Guide preview"
-                    className="w-full h-auto max-h-[500px] object-contain"
-                    onLoad={() => setImageLoaded(true)}
+                    src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'%3E%3Crect fill='%23FAFAF9' width='120' height='80'/%3E%3Crect x='8' y='8' width='104' height='12' rx='2' fill='%23E7E5E4'/%3E%3Crect x='8' y='28' width='50' height='20' rx='2' fill='%23F5F5F4'/%3E%3Ccircle cx='20' cy='38' r='8' fill='%2337352F'/%3E%3Crect x='8' y='56' width='70' height='10' rx='2' fill='%23E7E5E4'/%3E%3C/svg%3E`}
+                    alt={`Шаг ${index + 1}`}
                   />
-                  {imageLoaded && steps.map((step) => (
-                    <Marker
-                      key={step.id}
-                      step={step}
-                      onUpdatePosition={handleMarkerUpdate}
-                    />
-                  ))}
-                </>
-              ) : (
-                <div className="h-96 flex items-center justify-center text-gray-500">
-                  <ArrowsPointingOutIcon className="w-12 h-12 mx-auto mb-2" />
-                  <p>No screenshot available</p>
+                  <span className="step-num">{index + 1}</span>
                 </div>
-              )}
-            </div>
-            
-            <div className="mt-4 text-sm text-gray-500">
-              Drag the yellow markers to adjust click positions
-            </div>
+                <div className="notion-step-content">
+                  <p>{step.instruction || `Шаг ${index + 1}`}</p>
+                  <div className="notion-step-actions">
+                    <button className="notion-btn-icon-sm" title="Редактировать">
+                      <i className="fas fa-edit"></i>
+                    </button>
+                    <button className="notion-btn-icon-sm" title="Дублировать">
+                      <i className="fas fa-copy"></i>
+                    </button>
+                  </div>
+                </div>
+                <button
+                  className="notion-btn-icon-sm step-menu-toggle"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleStepMenu(index + 1);
+                  }}
+                >
+                  <i className="fas fa-ellipsis-h"></i>
+                </button>
+                {openStepMenu === index + 1 && (
+                  <div className="notion-step-menu">
+                    <a href="#"><i className="fas fa-link"></i> Связать со следующим</a>
+                    <a href="#" className="danger"><i className="fas fa-trash"></i> Удалить</a>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
-          {/* Steps Editor */}
-          <div className="card">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              Steps ({steps.length})
-            </h2>
-            
-            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-              {steps.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No steps generated yet</p>
-                  <p className="text-sm mt-1">Start by uploading a recording</p>
-                </div>
-              ) : (
-                steps.map((step, index) => (
-                  <StepCard
-                    key={step.id}
-                    step={step}
-                    index={index}
-                    totalSteps={steps.length}
-                    onUpdate={handleStepUpdate}
-                    onDelete={handleStepDelete}
-                    onMove={handleStepMove}
-                  />
-                ))
-              )}
+          {/* Footer Actions */}
+          <div className="notion-sidebar-footer">
+            <button className="notion-btn notion-btn-secondary notion-btn-block">
+              <i className="fas fa-volume-up"></i>
+              <span>Озвучить шаги</span>
+            </button>
+            <button
+              className="notion-btn notion-btn-secondary notion-btn-block"
+              onClick={() => setShortsModalOpen(true)}
+            >
+              <i className="fas fa-video"></i>
+              <span>Создать шортс</span>
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      {/* Preview Modal */}
+      {previewModalOpen && (
+        <div className="notion-modal-overlay" onClick={() => setPreviewModalOpen(false)}>
+          <div className="notion-modal notion-modal-large" onClick={(e) => e.stopPropagation()}>
+            <div className="notion-modal-header">
+              <h2>Предпросмотр гайда</h2>
+              <button className="notion-icon-btn" onClick={() => setPreviewModalOpen(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="notion-modal-body">
+              <div className="notion-preview-content">
+                {steps.map((step, index) => (
+                  <div key={index} className="notion-preview-step">
+                    <h3>Шаг {index + 1}. {step.instruction}</h3>
+                    <div className="notion-preview-image">
+                      <img
+                        src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 500'%3E%3Crect fill='%23FAFAF9' width='800' height='500'/%3E%3C/svg%3E`}
+                        alt={`Шаг ${index + 1}`}
+                      />
+                    </div>
+                    <p>{step.instruction}</p>
+                    {index < steps.length - 1 && <hr className="notion-divider" />}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </DndProvider>
-  )
+      )}
+
+      {/* Shorts Modal */}
+      {shortsModalOpen && (
+        <div className="notion-modal-overlay" onClick={() => setShortsModalOpen(false)}>
+          <div className="notion-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="notion-modal-header">
+              <h2>Создание видео-гайда</h2>
+              <button className="notion-icon-btn" onClick={() => setShortsModalOpen(false)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="notion-modal-body">
+              <div className="notion-short-preview">
+                <div className="notion-slideshow">
+                  <div className="slide active">
+                    <img
+                      src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 700'%3E%3Crect fill='%23FAFAF9' width='400' height='700'/%3E%3Crect x='20' y='20' width='360' height='28' rx='4' fill='%23E7E5E4'/%3E%3Crect x='40' y='100' width='320' height='44' rx='4' fill='%2337352F'/%3E%3Ctext x='200' y='130' font-family='Inter' font-size='14' fill='white' text-anchor='middle' font-weight='500'%3EШаг 1%3C/text%3E%3C/svg%3E`}
+                      alt="Слайд 1"
+                    />
+                    <span className="slide-counter">1 / {steps.length}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="notion-progress">
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: '20%' }}></div>
+                </div>
+                <p>Генерация видео: 20%</p>
+              </div>
+              <div className="notion-modal-actions">
+                <button className="notion-btn notion-btn-secondary" onClick={() => setShortsModalOpen(false)}>
+                  Отмена
+                </button>
+                <button className="notion-btn notion-btn-primary">
+                  <i className="fas fa-download"></i>
+                  Скачать ZIP
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default GuideEditor
+export default GuideEditor;

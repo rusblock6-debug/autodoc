@@ -222,7 +222,7 @@ class User(Base):
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     # Связи
-    guides: Mapped[List["Guide"]] = relationship("Guide", back_populates=None)
+    # guides: Mapped[List["Guide"]] = relationship("Guide", back_populates="user")
     
     __table_args__ = (
         Index("idx_users_role", "role"),

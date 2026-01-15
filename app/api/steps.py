@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Guide, GuideStep, GuideStatus
+from app.schemas import GuideStepCreate, GuideStepResponse
 from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
@@ -322,6 +323,90 @@ async def delete_step(
         "step_id": step_id,
         "guide_id": guide_id
     }
+
+
+@router.post("")
+async def create_step(
+    guide_id: int,
+    step_data: GuideStepCreate,
+    db: AsyncSession = Depends(get_db)
+) -> GuideStepResponse:
+    """
+    Создать новый шаг в гайде.
+    
+    Request body:
+    {
+        "step_number": 5,
+        "original_text": "Нажмите кнопку 'Создать'",
+        "edited_text": "Нажмите кнопку Создать",
+        "final_text": "Нажмите кнопку Создать",
+        "start_time": 10.5,
+        "end_time": 12.3,
+        "click_timestamp": 11.2,
+        "click_x": 450,
+        "click_y": 320,
+        "screenshot_path": "guides/uuid/screenshots/step_5.png",
+        "screenshot_width": 1920,
+        "screenshot_height": 1080
+    }
+    
+    Returns:
+    GuideStepResponse
+    """
+    # Проверяем, существует ли гайд
+    guide_result = await db.execute(
+        select(Guide).where(Guide.id == guide_id)
+    )
+    guide = guide_result.scalar_one_or_none()
+    
+    if not guide:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Guide {guide_id} not found"
+        )
+    
+    # Проверяем, нет ли уже шага с таким номером
+    existing_step_result = await db.execute(
+        select(GuideStep)
+        .where(GuideStep.guide_id == guide_id, GuideStep.step_number == step_data.step_number)
+    )
+    existing_step = existing_step_result.scalar_one_or_none()
+    
+    if existing_step:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Step with number {step_data.step_number} already exists in guide {guide_id}"
+        )
+    
+    # Создаем новый шаг
+    new_step = GuideStep(
+        guide_id=guide_id,
+        step_number=step_data.step_number,
+        original_text=step_data.original_text,
+        edited_text=step_data.edited_text,
+        final_text=step_data.final_text,
+        start_time=step_data.start_time,
+        end_time=step_data.end_time,
+        click_timestamp=step_data.click_timestamp,
+        click_x=step_data.click_x,
+        click_y=step_data.click_y,
+        screenshot_path=step_data.screenshot_path,
+        screenshot_width=step_data.screenshot_width,
+        screenshot_height=step_data.screenshot_height,
+        action_type=step_data.action_type,
+        element_description=step_data.element_description,
+        zoom_level=step_data.zoom_level,
+        audio_path=step_data.audio_path,
+        audio_duration=step_data.audio_duration
+    )
+    
+    db.add(new_step)
+    await db.commit()
+    await db.refresh(new_step)
+    
+    logger.info(f"Created new step {new_step.id} in guide {guide_id}")
+    
+    return GuideStepResponse.model_validate(new_step)
 
 
 @router.post("/{step_id}/regenerate_marker")
