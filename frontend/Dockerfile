@@ -1,16 +1,20 @@
-# Simple Dockerfile for static HTML/CSS/JS frontend
-FROM python:3.11-alpine
+# Frontend Dockerfile for React/Vite application
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy all files
-COPY . .
+# Copy package files
+COPY package*.json ./
 
-# Install Python dependencies if needed
-# RUN pip install flask
+# Install dependencies
+RUN npm install
+
+# Copy application files
+COPY . .
 
 # Expose port
 EXPOSE 3000
 
-# Start server
-CMD ["python", "server.py"]
+# Start Vite dev server (for development)
+# For production, use: npm run build && npm run preview
+CMD ["npm", "run", "dev"]

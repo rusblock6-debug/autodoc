@@ -63,9 +63,11 @@ services:
       - "3000:3000"
     volumes:
       - ./frontend:/app
+      - /app/node_modules
     environment:
       - PORT=3000
       - HOST=0.0.0.0
+      - VITE_API_URL=/api/v1
     networks:
       - autodoc-network
     restart: unless-stopped

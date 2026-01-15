@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, computed_field
 
 
 # ===================== Enums =====================
@@ -58,6 +58,7 @@ class BaseModelConfig(BaseModel):
         populate_by_name=True,
         from_attributes=True,
         use_enum_values=True,
+        arbitrary_types_allowed=True,  # Allow properties
     )
 
 
@@ -121,20 +122,22 @@ class ZoomRegion(BaseModel):
 
 
 class GuideStepBase(BaseModel):
-    """Базовая схема шага гайда."""
+    """Базовая схема шага гайда (MVP)."""
     step_number: int = Field(..., description="Номер шага", ge=0)
-    original_text: str = Field(..., description="Оригинальный текст шага")
+    normalized_text: str = Field(..., description="Нормализованный текст (результат LLM)")
     edited_text: Optional[str] = Field(None, description="Отредактированный текст")
-    final_text: str = Field(..., description="Финальный текст для озвучки")
-    start_time: float = Field(..., description="Начальное время (секунды)", ge=0)
-    end_time: float = Field(..., description="Конечное время (секунды)", ge=0)
-    action_type: Optional[ActionTypeEnum] = None
-    element_description: Optional[str] = Field(None, description="Описание элемента")
-    element_coordinates: Optional[StepCoordinates] = None
-    zoom_region: Optional[ZoomRegion] = None
-    zoom_level: float = Field(default=1.0, ge=1.0, le=5.0)
-    audio_path: Optional[str] = None
-    audio_duration: Optional[float] = None
+    # final_text is a property, computed from edited_text or normalized_text
+    click_timestamp: float = Field(..., description="Таймкод клика в секундах", ge=0)
+    click_x: int = Field(..., description="Координата X маркера")
+    click_y: int = Field(..., description="Координата Y маркера")
+    screenshot_path: str = Field(..., description="Путь к скриншоту")
+    screenshot_width: int = Field(..., description="Ширина скриншота")
+    screenshot_height: int = Field(..., description="Высота скриншота")
+    raw_speech: Optional[str] = Field(None, description="Оригинальная речь")
+    raw_speech_start: Optional[float] = Field(None, description="Начало речи")
+    raw_speech_end: Optional[float] = Field(None, description="Конец речи")
+    tts_audio_path: Optional[str] = Field(None, description="Путь к аудио TTS")
+    tts_duration_seconds: Optional[float] = Field(None, description="Длительность аудио")
 
 
 class GuideStepCreate(GuideStepBase):
@@ -151,13 +154,21 @@ class GuideStepUpdate(BaseModel):
 
 
 class GuideStepResponse(GuideStepBase, TimestampMixin):
-    """Схема ответа с данными шага."""
+    """Схема ответа с данными шага (MVP)."""
     id: int
     guide_id: int
-    asr_transcript: Optional[str] = None
-    asr_confidence: Optional[float] = None
-    is_processed: bool = False
-    needs_regenerate: bool = False
+    
+    @computed_field
+    @property
+    def final_text(self) -> str:
+        """Финальный текст: edited_text или normalized_text."""
+        return self.edited_text or self.normalized_text
+    
+    @computed_field
+    @property
+    def original_text(self) -> str:
+        """Алиас для normalized_text для обратной совместимости."""
+        return self.normalized_text
 
 
 class AnnotationData(BaseModel):
@@ -216,7 +227,7 @@ class GuideListResponse(BaseModel):
     title: str
     description: Optional[str] = None
     status: GuideStatusEnum
-    content_type: ContentTypeEnum
+    content_type: Optional[ContentTypeEnum] = ContentTypeEnum.ALL  # Optional for MVP
     language: str = "ru"
     tags: List[str] = []
     duration_seconds: Optional[float] = None
@@ -233,14 +244,14 @@ class GuideDetailResponse(BaseModel):
     title: str
     description: Optional[str] = None
     status: GuideStatusEnum
-    content_type: ContentTypeEnum
+    content_type: Optional[ContentTypeEnum] = ContentTypeEnum.ALL  # Optional for MVP
     language: str = "ru"
     tags: List[str] = []
     
-    # AI-модели
-    asr_model: str
-    llm_model: str
-    tts_voice: str
+    # AI-модели (optional for MVP)
+    asr_model: Optional[str] = "large-v3"
+    llm_model: Optional[str] = "Qwen/Qwen2.5-7B-Instruct"
+    tts_voice: str = "ru-RU-SvetlanaNeural"
     
     # Результаты AI
     generated_summary: Optional[str] = None

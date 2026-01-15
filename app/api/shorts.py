@@ -22,7 +22,7 @@ from app.services.shorts_generator import shorts_generator
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/shorts", tags=["Shorts"])
+router = APIRouter()
 
 
 @router.post("/generate/{guide_id}")

@@ -29,15 +29,23 @@ function GuideEditor() {
 
   const fetchGuide = async () => {
     try {
+      console.log('Fetching guide with id:', id);
       const response = await api.get(`/guides/${id}`);
-      setGuide(response.data);
-      setTitle(response.data.title);
-      setSteps(response.data.steps || []);
-      if (response.data.steps && response.data.steps.length > 0) {
-        setInstruction(response.data.steps[0].instruction || '');
+      console.log('Fetched guide response:', response);
+      // API interceptor already returns response.data
+      setGuide(response);
+      setTitle(response?.title || '');
+      setSteps(response?.steps || []);
+      if (response?.steps && response.steps.length > 0) {
+        // Use edited_text if available, otherwise original_text, otherwise final_text
+        const firstStep = response.steps[0];
+        setInstruction(firstStep.edited_text || firstStep.original_text || firstStep.final_text || '');
       }
     } catch (error) {
       console.error('Error fetching guide:', error);
+      console.error('Error response:', error.response);
+      console.error('Error data:', error.response?.data);
+      alert('Ошибка загрузки гайда: ' + (error.response?.data?.detail || error.message));
     } finally {
       setLoading(false);
     }
@@ -86,38 +94,65 @@ function GuideEditor() {
 
   const saveDraft = async () => {
     try {
-      await api.put(`/guides/${id}`, {
+      console.log('Saving draft for guide:', id);
+      // API uses PATCH, not PUT
+      await api.patch(`/guides/${id}`, {
         title,
-        steps: steps.map((step, index) => ({
-          ...step,
-          instruction: index === currentStep - 1 ? instruction : step.instruction
-        }))
+        // Steps should be updated separately via steps API
       });
+      
+      // Update current step instruction if changed
+      if (steps[currentStep - 1]) {
+        const step = steps[currentStep - 1];
+        const currentText = step.edited_text || step.original_text || step.final_text || '';
+        if (instruction !== currentText && step.id) {
+          console.log('Updating step:', step.id, 'with edited_text:', instruction);
+          await api.patch(`/steps/${step.id}/text`, {
+            edited_text: instruction
+          });
+        } else if (!step.id) {
+          console.warn('Step has no ID, cannot update');
+        }
+      }
+      
       setHasChanges(false);
       showNotification('Черновик сохранен');
     } catch (error) {
       console.error('Error saving draft:', error);
-      showNotification('Ошибка сохранения');
+      console.error('Error response:', error.response);
+      console.error('Error data:', error.response?.data);
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || error.message || 'Неизвестная ошибка';
+      showNotification('Ошибка сохранения: ' + errorMessage);
     }
   };
 
   const addNewStep = () => {
+    // For MVP: just add step locally, user can save later
+    const stepNumber = steps.length + 1;
+    const stepText = `Новый шаг ${stepNumber}`;
+    
     const newStep = {
-      step_number: steps.length + 1,
-      instruction: `Новый шаг ${steps.length + 1}`,
-      screenshot_url: null
+      id: null, // Temporary, will be created on save
+      step_number: stepNumber,
+      original_text: stepText,
+      edited_text: stepText,
+      final_text: stepText,
+      guide_id: parseInt(id),
     };
+    
     setSteps([...steps, newStep]);
-    setCurrentStep(steps.length + 1);
+    setCurrentStep(stepNumber);
+    setInstruction(stepText);
     setHasChanges(true);
-    showNotification('Шаг добавлен');
+    showNotification('Шаг добавлен (сохраните для применения)');
   };
 
   const switchToStep = (stepNum) => {
     setCurrentStep(stepNum);
     const step = steps[stepNum - 1];
     if (step) {
-      setInstruction(step.instruction || '');
+      // Use edited_text if available, otherwise original_text, otherwise final_text
+      setInstruction(step.edited_text || step.original_text || step.final_text || '');
     }
   };
 
@@ -325,7 +360,7 @@ function GuideEditor() {
                   <span className="step-num">{index + 1}</span>
                 </div>
                 <div className="notion-step-content">
-                  <p>{step.instruction || `Шаг ${index + 1}`}</p>
+                  <p>{step.edited_text || step.original_text || step.final_text || `Шаг ${index + 1}`}</p>
                   <div className="notion-step-actions">
                     <button className="notion-btn-icon-sm" title="Редактировать">
                       <i className="fas fa-edit"></i>
@@ -383,19 +418,22 @@ function GuideEditor() {
             </div>
             <div className="notion-modal-body">
               <div className="notion-preview-content">
-                {steps.map((step, index) => (
-                  <div key={index} className="notion-preview-step">
-                    <h3>Шаг {index + 1}. {step.instruction}</h3>
-                    <div className="notion-preview-image">
-                      <img
-                        src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 500'%3E%3Crect fill='%23FAFAF9' width='800' height='500'/%3E%3C/svg%3E`}
-                        alt={`Шаг ${index + 1}`}
-                      />
+                {steps.map((step, index) => {
+                  const stepText = step.edited_text || step.original_text || step.final_text || step.normalized_text || '';
+                  return (
+                    <div key={index} className="notion-preview-step">
+                      <h3>Шаг {index + 1}. {stepText}</h3>
+                      <div className="notion-preview-image">
+                        <img
+                          src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 500'%3E%3Crect fill='%23FAFAF9' width='800' height='500'/%3E%3C/svg%3E`}
+                          alt={`Шаг ${index + 1}`}
+                        />
+                      </div>
+                      <p>{stepText}</p>
+                      {index < steps.length - 1 && <hr className="notion-divider" />}
                     </div>
-                    <p>{step.instruction}</p>
-                    {index < steps.length - 1 && <hr className="notion-divider" />}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

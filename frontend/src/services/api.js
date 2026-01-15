@@ -1,10 +1,13 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+// Use relative path to work with Vite proxy in Docker
+// In Docker, Vite proxy will forward /api to http://autodoc-ai:8000
+export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1'
+const API_BASE_URL_INTERNAL = API_BASE_URL
 
 // Create axios instance
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL_INTERNAL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -27,13 +30,31 @@ api.interceptors.request.use(
 
 // Response interceptor
 api.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // Log successful responses in development
+    if (import.meta.env.DEV) {
+      console.log('API Response:', response.config.method?.toUpperCase(), response.config.url, response.data);
+    }
+    return response.data;
+  },
   (error) => {
+    // Enhanced error logging
+    console.error('API Error:', {
+      method: error.config?.method?.toUpperCase(),
+      url: error.config?.url,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message
+    });
+    
     if (error.response?.status === 401) {
       // Handle unauthorized
       localStorage.removeItem('token')
       window.location.href = '/login'
     }
+    
+    // Return error with full details for better debugging
     return Promise.reject(error)
   }
 )

@@ -24,7 +24,7 @@ from app.services.screenshot_service import ScreenshotExtractor
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["Sessions"])
+router = APIRouter()
 
 
 @router.post("/upload")

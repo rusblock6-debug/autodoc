@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import api from '../services/api';
+import api, { API_BASE_URL } from '../services/api';
+import axios from 'axios';
 
 function ShortsGenerator() {
   const { id } = useParams();
@@ -18,7 +19,8 @@ function ShortsGenerator() {
   const fetchGuide = async () => {
     try {
       const response = await api.get(`/guides/${id}`);
-      setGuide(response.data);
+      // API interceptor already returns response.data
+      setGuide(response);
     } catch (error) {
       console.error('Error fetching guide:', error);
     } finally {
@@ -54,14 +56,15 @@ function ShortsGenerator() {
 
   const downloadShorts = async () => {
     try {
-      const response = await api.get(`/guides/${id}/shorts/download`, {
+      // For blob responses, we need to bypass the interceptor
+      const response = await axios.get(`${API_BASE_URL}/shorts/${id}/download`, {
         responseType: 'blob'
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${guide.title}_shorts.zip`);
+      link.setAttribute('download', `${guide?.title || 'shorts'}_shorts.zip`);
       document.body.appendChild(link);
       link.click();
       link.remove();

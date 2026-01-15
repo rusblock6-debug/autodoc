@@ -112,8 +112,8 @@ async def get_guide(
         .where(Guide.id == guide_id)
         .options(
             selectinload(Guide.steps),
-            selectinload(Guide.screenshots),
-            selectinload(Guide.processing_jobs),
+            # selectinload(Guide.screenshots),  # Not in MVP model
+            # selectinload(Guide.processing_jobs),  # Not in MVP model
         )
     )
     
@@ -142,7 +142,7 @@ async def get_guide_by_uuid(
         .where(Guide.uuid == guide_uuid)
         .options(
             selectinload(Guide.steps),
-            selectinload(Guide.screenshots),
+            # selectinload(Guide.screenshots),  # Not in MVP model
         )
     )
     
@@ -155,9 +155,9 @@ async def get_guide_by_uuid(
             detail=f"Guide with uuid {guide_uuid} not found",
         )
     
-    # Увеличиваем счетчик просмотров
-    guide.view_count += 1
-    await db.commit()
+    # Note: view_count not in MVP model
+    # guide.view_count += 1
+    # await db.commit()
     
     return GuideDetailResponse.model_validate(guide)
 

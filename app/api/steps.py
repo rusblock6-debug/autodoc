@@ -23,7 +23,7 @@ from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/steps", tags=["Steps"])
+router = APIRouter()
 
 
 class StepUpdate:

@@ -18,7 +18,7 @@ from app.models import Guide, GuideStep, GuideStatus
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/export", tags=["Export"])
+router = APIRouter()
 
 
 @router.get("/markdown/{guide_id}")

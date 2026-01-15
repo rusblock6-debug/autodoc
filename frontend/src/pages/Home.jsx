@@ -18,10 +18,14 @@ function Home() {
 
   const fetchGuides = async () => {
     try {
-      const response = await api.get('/guides/');
-      setGuides(response.data || []);
+      const response = await api.get('/guides');
+      // API interceptor already returns response.data, and backend returns PaginatedResponse with items
+      console.log('Fetched guides response:', response);
+      setGuides(response?.items || response || []);
     } catch (error) {
       console.error('Error fetching guides:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      alert('Ошибка загрузки гайдов: ' + (error.response?.data?.detail || error.message));
       setGuides([]);
     } finally {
       setLoading(false);
@@ -154,7 +158,7 @@ function Home() {
                           <i className="far fa-calendar"></i> {new Date(guide.created_at).toLocaleDateString('ru-RU')}
                         </span>
                         <span>
-                          <i className="fas fa-list-ol"></i> {guide.steps?.length || 0} шагов
+                          <i className="fas fa-list-ol"></i> {guide.steps_count || guide.steps?.length || 0} шагов
                         </span>
                       </div>
                       <div className="notion-card-actions">
@@ -248,4 +252,7 @@ function Home() {
         </div>
       )}
     </div>
-  );
+  );
+}
+
+export default Home;

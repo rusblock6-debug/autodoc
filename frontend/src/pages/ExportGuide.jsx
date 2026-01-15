@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import api from '../services/api';
+import api, { API_BASE_URL } from '../services/api';
+import axios from 'axios';
 
 function ExportGuide() {
   const { id } = useParams();
@@ -16,8 +17,9 @@ function ExportGuide() {
   const fetchGuide = async () => {
     try {
       const response = await api.get(`/guides/${id}`);
-      setGuide(response.data);
-      generateExportContent(response.data, 'markdown');
+      // API interceptor already returns response.data
+      setGuide(response);
+      generateExportContent(response, 'markdown');
     } catch (error) {
       console.error('Error fetching guide:', error);
     } finally {
@@ -30,9 +32,10 @@ function ExportGuide() {
 
     switch (format) {
       case 'markdown':
-        setExportContent(`# ${guideData.title}\n\n${guideData.steps?.map((step, i) => 
-          `## Шаг ${i + 1}\n${step.instruction}\n\n![Шаг ${i + 1}](screenshot_${String(i + 1).padStart(2, '0')}.png)\n`
-        ).join('\n') || ''}`);
+        setExportContent(`# ${guideData.title}\n\n${guideData.steps?.map((step, i) => {
+          const stepText = step.edited_text || step.original_text || step.final_text || step.normalized_text || '';
+          return `## Шаг ${i + 1}\n${stepText}\n\n![Шаг ${i + 1}](screenshot_${String(i + 1).padStart(2, '0')}.png)\n`;
+        }).join('\n') || ''}`);
         break;
       case 'html':
         setExportContent(`<!DOCTYPE html>
@@ -49,13 +52,16 @@ function ExportGuide() {
 </head>
 <body>
   <h1>${guideData.title}</h1>
-  ${guideData.steps?.map((step, i) => `
+  ${guideData.steps?.map((step, i) => {
+    const stepText = step.edited_text || step.original_text || step.final_text || step.normalized_text || '';
+    return `
   <div class="step">
     <h2>Шаг ${i + 1}</h2>
-    <p>${step.instruction}</p>
+    <p>${stepText}</p>
     <img src="screenshot_${String(i + 1).padStart(2, '0')}.png" alt="Шаг ${i + 1}">
   </div>
-  `).join('') || ''}
+  `;
+  }).join('') || ''}
 </body>
 </html>`);
         break;
@@ -84,14 +90,15 @@ function ExportGuide() {
 
   const handleDownload = async () => {
     try {
-      const response = await api.get(`/guides/${id}/export/${activeTab}`, {
+      // For blob responses, we need to bypass the interceptor
+      const response = await axios.get(`${API_BASE_URL}/export/${id}/${activeTab}`, {
         responseType: 'blob'
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${guide.title}.${activeTab === 'markdown' ? 'md' : activeTab}`);
+      link.setAttribute('download', `${guide?.title || 'guide'}.${activeTab === 'markdown' ? 'md' : activeTab}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
