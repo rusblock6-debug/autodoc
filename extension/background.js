@@ -198,6 +198,11 @@ async function stopRecording(sendResponse) {
     
     isRecording = false;
     
+    // Ждём немного чтобы данные сохранились
+    setTimeout(() => {
+      finalizeRecording();
+    }, 1000);
+    
     sendResponse({ success: true });
     
   } catch (error) {

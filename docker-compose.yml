@@ -1,5 +1,23 @@
 # AutoDoc AI System - Docker Compose Configuration
 # =================================================
+#
+# Services included:
+# - autodoc-ai: FastAPI backend
+# - autodoc-frontend: React frontend
+# - postgres: Database
+# - redis: Task queue
+# - minio: Object storage
+# - celery-worker: Background processing
+# - minio-client: Storage initialization
+# - pgadmin: Database management (optional)
+#
+# Access URLs:
+# - Frontend: http://localhost:3000
+# - Backend API: http://localhost:8000
+# - API Docs: http://localhost:8000/docs
+# - MinIO Console: http://localhost:9001
+# - pgAdmin: http://localhost:5050
+# =================================================
 
 services:
   # === Main Application ===
@@ -34,6 +52,27 @@ services:
     networks:
       - autodoc-network
     restart: unless-stopped
+
+  # === Frontend Application ===
+  autodoc-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: autodoc-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - VITE_API_URL=http://autodoc-ai:8000
+      - NODE_ENV=development
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+    depends_on:
+      - autodoc-ai
 
   # === PostgreSQL Database ===
   postgres:
