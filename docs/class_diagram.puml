@@ -1,0 +1,154 @@
+@startuml AutoDoc AI - Data Models
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam classAttributeIconSize 0
+
+' ========================================
+' Class Diagram - Core Data Models
+' ========================================
+
+enum GuideStatus {
+    DRAFT
+    PROCESSING
+    COMPLETED
+    FAILED
+    ARCHIVED
+}
+
+enum ContentType {
+    VIDEO
+    WIKI
+    SHORTS
+    ALL
+}
+
+enum ActionType {
+    CLICK
+    DOUBLE_CLICK
+    RIGHT_CLICK
+    SCROLL
+    TYPE
+    DRAG
+    HOVER
+    KEY_PRESS
+}
+
+class User {
+    - id: int
+    - email: string
+    - hashed_password: string
+    - username: string
+    - full_name: string
+    - avatar_url: string
+    - preferred_language: string
+    - preferred_tts_voice: string
+    - is_active: boolean
+    - is_verified: boolean
+    - role: string
+    - created_at: datetime
+    - last_login_at: datetime
+    + guides: List<Guide>
+}
+
+class Guide {
+    - id: int
+    - uuid: string
+    - title: string
+    - description: string
+    - status: GuideStatus
+    - content_type: ContentType
+    - tags: List[str]
+    - language: string
+    - asr_model: string
+    - llm_model: string
+    - tts_voice: string
+    - generated_summary: string
+    - original_video_path: string
+    - processed_video_path: string
+    - wiki_markdown_path: string
+    - shorts_video_path: string
+    - duration_seconds: float
+    - is_public: boolean
+    - share_token: string
+    - view_count: int
+    - created_at: datetime
+    + steps: List<GuideStep>
+    + screenshots: List<GuideScreenshot>
+    + processing_jobs: List<ProcessingJob>
+}
+
+class GuideStep {
+    - id: int
+    - step_number: int
+    - original_text: string
+    - edited_text: string
+    - final_text: string
+    - start_time: float
+    - end_time: float
+    - action_type: ActionType
+    - element_description: string
+    - element_coordinates: dict
+    - zoom_region: dict
+    - zoom_level: float
+    - audio_path: string
+    - audio_duration: float
+    - asr_transcript: string
+    - asr_confidence: float
+    - is_processed: boolean
+    - needs_regenerate: boolean
+    - created_at: datetime
+}
+
+class GuideScreenshot {
+    - id: int
+    - file_path: string
+    - minio_key: string
+    - width: int
+    - height: int
+    - video_timestamp: float
+    - annotations: dict
+    - arrow_data: dict
+    - screenshot_type: string
+    - created_at: datetime
+}
+
+class ProcessingJob {
+    - id: int
+    - celery_task_id: string
+    - job_type: string
+    - parameters: dict
+    - result: dict
+    - status: string
+    - progress: int
+    - progress_message: string
+    - priority: ProcessingPriority
+    - created_at: datetime
+    - started_at: datetime
+    - completed_at: datetime
+    - error_message: string
+    - retry_count: int
+}
+
+' Relationships
+User "1" --> "*" Guide : creates
+Guide "1" --> "*" GuideStep : contains
+Guide "1" --> "*" GuideScreenshot : contains
+Guide "1" --> "*" ProcessingJob : has
+GuideStep "*" --> "0..1" GuideScreenshot : referenced_by
+
+note right of Guide
+  Core entity linking all components:
+  - Original recording
+  - AI-processed steps
+  - Generated outputs (Video, Wiki, Shorts)
+end note
+
+note right of GuideStep
+  Represents one action in the guide:
+  - Original text from ASR
+  - Edited text (magic edit)
+  - Final text for TTS
+  - Timing and zoom information
+end note
+
+@enduml

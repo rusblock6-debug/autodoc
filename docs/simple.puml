@@ -1,0 +1,96 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam defaultFontSize 14
+
+title AutoDoc AI - Real Architecture (Simplified)
+
+' ==================== CLIENT ====================
+package "Client" as Client {
+    component [Browser Extension\nRecording] as Ext
+    component [Web UI\nReact/Vue] as Web
+}
+
+' ==================== API ====================
+package "FastAPI Server" as API {
+    component [Auth API] as Auth
+    component [Guides API] as Guides
+    component [Processing API] as Proc
+    component [Storage API] as Storage
+}
+
+' ==================== INFRA ====================
+package "Infrastructure" as Infra {
+    database [Redis\nQueue] as Redis
+    database [PostgreSQL\nDB] as DB
+    storage [MinIO\nS3] as S3
+}
+
+' ==================== WORKER ====================
+package "Celery Worker (1 Python Process)" as Worker {
+    
+    component [Orchestrator\nPipeline] as Orch
+    
+    package "AI (Python Classes)" as AI {
+        component [Whisper\nASR] as Whisper
+        component [LLM\nQwen/Llama] as LLM
+        component [TTS\nEdge/Coqui] as TTS
+    }
+    
+    package "Video (FFmpeg Wrappers)" as Video {
+        component [Processor\nRender] as Processor
+        component [Shorts\nCrop/Speed] as Shorts
+        component [Screenshots\nExtract] as Screens
+    }
+    
+    component [Aligner\nTiming Logic] as Aligner
+}
+
+' ==================== FLOWS ====================
+
+' Client → API
+Ext --> API : Upload
+Web --> API : REST
+
+' API → Infra
+API --> Redis : Enqueue
+API --> DB : Save
+API --> S3 : Upload
+
+' Worker → Infra
+Redis --> Worker : Dequeue
+Worker --> DB : Read
+Worker --> S3 : Get
+
+' Inside Worker (in-memory!)
+Worker --> Orch : Run
+Orch --> Whisper : Transcribe
+Whisper --> Orch : JSON
+
+Orch --> LLM : Analyze
+LLM --> Orch : JSON
+
+Orch --> Aligner : Sync
+Aligner --> Orch : JSON
+
+Orch --> TTS : Generate
+TTS --> Orch : MP3
+
+Orch --> Processor : Render
+Processor --> Orch : MP4
+
+Orch --> Shorts : Create
+Shorts --> Orch : MP4
+
+Orch --> Screenshots : Extract
+Screenshots --> Orch : PNG
+
+' Output
+Orch --> DB : Update
+Orch --> S3 : Upload
+
+' Result
+API --> Web : Polling
+
+@enduml

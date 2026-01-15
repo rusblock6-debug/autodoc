@@ -1,0 +1,117 @@
+@startuml Magic Edit Workflow
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceMessageAlign center
+skinparam actorBackgroundColor #E3F2FD
+skinparam participantBackgroundColor #FFF3E0
+skinparam noteBackgroundColor #E8F5E9
+
+' ========================================
+' Sequence Diagram - Magic Edit Flow
+' ========================================
+
+actor "User" as User
+participant "Web Dashboard" as Web
+participant "Guides API" as API
+participant "TTS Service" as TTS
+participant "Smart Aligner" as Aligner
+participant "Video Processor" as Video
+database "PostgreSQL" as DB
+storage "MinIO Storage" as Storage
+
+' Step 1: User edits step text
+User -> Web : Edit Step Text\n"Нажми кнопку" -> "Нажми красную кнопку Отправить"
+Web -> API : PATCH /guides/{id}/steps/{step_id}\n{edited_text: "Нажми красную кнопку..."}
+
+API -> DB : Update GuideStep\nset edited_text, needs_regenerate=true
+DB --> API : Step updated
+
+API --> Web : Step updated\nneeds_regenerate = true
+
+Web --> User : Show "Apply Changes" button
+
+' Step 2: User triggers magic edit
+User -> Web : Click "Apply Changes"
+Web -> API : POST /processing/{id}/magic-edit\n{step_ids: [1, 2, 3]}
+
+API -> DB : Get steps needing regeneration
+DB --> API : List<GuideStep>
+
+API -> TTS : Generate new audio\ntext = edited_text, voice = guide.voice
+
+note over TTS
+  Edge TTS or Coqui XTTS
+  generates new audio track
+  matching edited text
+end note
+
+TTS --> API : Audio file path, duration
+
+API -> DB : Update step\naudio_path, audio_duration, is_processed
+
+' Step 3: Smart alignment
+API -> Aligner : Align audio to video\noriginal_duration, new_audio_duration
+
+note over Aligner
+  Calculates time-stretch factor:
+  speed = original_duration / new_duration
+  
+  Applies atempo filter to video
+  to match new audio length
+end note
+
+Aligner --> API : Alignment parameters
+
+' Step 4: Video regeneration with zoom
+API -> Video : Render video\nsteps, alignment, zoom regions
+
+note over Video
+  FFmpeg processing:
+  1. Extract segments
+  2. Apply zoompan filter
+  3. Time-stretch (atempo)
+  4. Overlay cursor
+  5. Concatenate
+  6. Encode H.264
+end note
+
+Video --> API : Processed video file
+
+API -> Storage : Upload processed video\nprocessed_video_path
+
+Storage --> API : Upload confirmed
+
+API -> DB : Update guide\nstatus = COMPLETED\nprocessed_video_path
+
+API --> Web : Processing complete\nnew_video_url
+
+Web --> User : Show updated video\nwith new audio
+
+' Alternative: Wiki generation
+opt User requests Wiki
+    User -> Web : Click "Generate Wiki"
+    Web -> API : POST /processing/{id}/wiki
+    
+    API -> DB : Get all steps
+    DB --> API : List<GuideStep>
+    
+    API -> AI : Generate Markdown content\nsteps, title, language
+    
+    note over AI
+      LLM generates:
+      - Title
+      - Introduction
+      - Numbered steps
+      - Tips and notes
+    end note
+    
+    AI --> API : Markdown content
+    
+    API -> Storage : Upload Wiki file
+    Storage --> API : File URL
+    
+    API --> Web : Wiki URL
+    Web --> User : Show Wiki article
+end
+
+@enduml

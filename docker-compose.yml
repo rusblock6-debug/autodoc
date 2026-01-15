@@ -1,0 +1,167 @@
+# AutoDoc AI System - Docker Compose Configuration
+# =================================================
+
+services:
+  # === Main Application ===
+  autodoc-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: autodoc-ai
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/workspace/autodoc_ai
+      - ./data:/data
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=autodoc
+      - DATABASE_PASSWORD=autodoc_secret
+      - DATABASE_NAME=autodoc_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+  # === PostgreSQL Database ===
+  postgres:
+    image: postgres:15-alpine
+    container_name: autodoc-postgres
+    environment:
+      - POSTGRES_USER=autodoc
+      - POSTGRES_PASSWORD=autodoc_secret
+      - POSTGRES_DB=autodoc_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+  # === Redis for Task Queue ===
+  redis:
+    image: redis:7-alpine
+    container_name: autodoc-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+  # === MinIO (S3-compatible storage) ===
+  minio:
+    image: minio/minio:latest
+    container_name: autodoc-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+  # === Celery Worker (for background tasks) ===
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: autodoc-celery
+    command: celery -A app.celery worker --loglevel=info
+    volumes:
+      - ./:/workspace/autodoc_ai
+      - ./data:/data
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=autodoc
+      - DATABASE_PASSWORD=autodoc_secret
+      - DATABASE_NAME=autodoc_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+  # === MinIO Client (init buckets) ===
+  minio-client:
+    image: minio/mc:latest
+    container_name: autodoc-mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO to be ready...';
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        if mc alias set myminio http://minio:9000 minioadmin minioadmin 2>/dev/null; then
+          echo 'MinIO is ready!';
+          break;
+        fi;
+        echo 'Retrying in 2 seconds...';
+        sleep 2;
+      done;
+      mc mb myminio/autodoc-uploads --ignore-existing;
+      mc mb myminio/autodoc-videos --ignore-existing;
+      mc mb myminio/autodoc-screenshots --ignore-existing;
+      mc mb myminio/autodoc-wiki --ignore-existing;
+      mc mb myminio/autodoc-audio --ignore-existing;
+      echo 'All buckets initialized successfully';
+      exit 0;
+      "
+    networks:
+      - autodoc-network
+
+  # === pgAdmin (Database management - optional) ===
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: autodoc-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@example.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+
+networks:
+  autodoc-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  pgadmin_data:

@@ -1,0 +1,95 @@
+@startuml AutoDoc AI - REAL Architecture
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+
+' ========================================
+' REAL Architecture - How it Actually Works
+' ========================================
+
+package "Client Side" as ClientSide {
+    component [Browser Extension\nRecording] as Extension
+    component [Web Dashboard\nReact/Vue] as WebUI
+}
+
+package "API Server (FastAPI)" as APIServer {
+    component [Auth API\nJWT] as AuthAPI
+    component [Guides API\nCRUD] as GuidesAPI
+    component [Processing API\nTasks] as ProcessingAPI
+    component [Storage API\nUpload/Download] as StorageAPI
+}
+
+package "Infrastructure" as Infra {
+    database "Redis\n(Task Queue)" as Redis
+    database "PostgreSQL\n(Metadata)" as PostgreSQL
+    storage "MinIO S3\n(Files)" as MinIO
+}
+
+package "Celery Worker Process" as Worker {
+    
+    component "Pipeline Orchestrator\n(Coordinator)" as Orchestrator
+    
+    package "AI Engine (Python Classes)" as AIEngine {
+        component "WhisperWrapper\n(Speech-to-Text)" as Whisper
+        component "LLM Wrapper\n(Qwen/Llama)" as LLM
+        component "TTS Service\n(Edge/Coqui)" as TTS
+    }
+    
+    package "Video Engine (FFmpeg Wrappers)" as VideoEngine {
+        component "Video Processor\n(Zoom, Concatenate)" as VideoProc
+        component "Shorts Generator\n(Crop, Speed)" as ShortsGen
+        component "Screenshot Extractor" as Screenshots
+    }
+    
+    component "Smart Aligner\n(Timing Logic)" as Aligner
+}
+
+' === Real Data Flow ===
+
+' Client to API
+Extension --> APIServer : Upload Recording\n+ Click Events
+WebUI --> APIServer : API Calls
+
+' API to Infrastructure
+APIServer --> Redis : Enqueue Task (Celery)
+APIServer --> PostgreSQL : Save Metadata
+APIServer --> MinIO : Upload File
+
+' Worker picks task
+Redis --> Worker : Dequeue Task
+
+' Internal worker flow (in-memory!)
+Worker --> Orchestrator : Start Pipeline
+Orchestrator --> Whisper : Transcribe Audio
+Whisper --> Orchestrator : Transcript (JSON)
+
+Orchestrator --> LLM : Generate Metadata\nTitles, Steps, Tags
+LLM --> Orchestrator : Structured Data (JSON)
+
+Orchestrator --> Aligner : Sync Audio+Actions
+Aligner --> Orchestrator : Aligned Timeline (JSON)
+
+Orchestrator --> TTS : Generate Audio\n(for edited steps)
+TTS --> Orchestrator : Audio Files
+
+Orchestrator --> VideoProc : Render Video\n(Timeline + Zoom)
+VideoProc --> Orchestrator : MP4 File
+
+Orchestrator --> ShortsGen : Generate Shorts\n(Crop 9:16)
+ShortsGen --> Orchestrator : Shorts MP4
+
+Orchestrator --> Screenshots : Extract Frames\n(for Wiki)
+Screenshots --> Orchestrator : Images
+
+' Output to Infrastructure
+Orchestrator --> PostgreSQL : Update Guide\nStatus, Paths
+Orchestrator --> MinIO : Upload Video\n+ Shorts + Wiki
+
+' Worker to API (async via Redis result)
+Orchestrator --> Redis : Set Result
+
+' API to Client
+APIServer --> WebUI : Return Result\n(Polling/WebSocket)
+
+@enduml

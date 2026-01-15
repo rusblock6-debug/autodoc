@@ -1,0 +1,101 @@
+@startuml
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam defaultFontSize 12
+
+' ========================================
+' Component Diagram - Corrected Architecture
+' ========================================
+
+title AutoDoc AI - Real System Architecture
+
+package "Client Side" as Clients {
+    component [Browser Extension\nRecording] as Extension
+    component [Web Dashboard\nReact/Vue] as WebUI
+}
+
+package "API Server (FastAPI)" as API {
+    component [API Gateway\nRoutes & Validation] as Gateway
+    component [Auth Endpoints] as Auth
+    component [Guide Endpoints] as Guides
+    component [Processing Endpoints] as Processing
+    component [Storage Endpoints] as Storage
+}
+
+package "Infrastructure" as Infra {
+    database "Redis\nTask Queue" as Redis
+    database "PostgreSQL\nMetadata & State" as PostgreSQL
+    storage "MinIO S3\nBinary Files" as MinIO
+}
+
+package "Celery Worker (One Process)" as Worker {
+    
+    component "Pipeline Orchestrator\nMain Coordinator" as Orch
+    
+    package "AI Engine (Python Libraries)" as AI {
+        component [Whisper\nSpeech Recognition] as Whisper
+        component [Qwen/Llama\nLanguage Model] as LLM
+        component [Edge TTS\nText-to-Speech] as EdgeTTS
+        component [Coqui XTTS\nVoice Cloning] as CoquiTTS
+    }
+    
+    package "Video Engine (FFmpeg Wrappers)" as Video {
+        component [VideoProcessor\nZoom & Render] as VideoProc
+        component [ShortsGenerator\nVertical Format] as Shorts
+        component [ScreenshotTool\nFrame Extract] as Screenshots
+    }
+    
+    component "SmartAligner\n(Timing Calculator)" as Aligner
+}
+
+' === Data Flow (Simplified) ===
+
+' Client → API
+Extension --> API : Upload Video\n+ Events Log
+WebUI --> API : REST API Calls
+
+' API → Infrastructure
+API --> Redis : Enqueue Job
+API --> PostgreSQL : Save Guide\nMetadata
+API --> MinIO : Store Original\nVideo File
+
+' Worker → Infrastructure
+Redis --> Worker : Dequeue Task\n(Async)
+Worker --> PostgreSQL : Read Guide\nRead Steps
+Worker --> MinIO : Get Original\nVideo File
+
+' Inside Worker (In-Memory!)
+Worker --> Orch : Start Pipeline
+
+Orch --> Whisper : Transcribe\n(Audio → Text)
+Whisper --> Orch : Transcript\n(JSON)
+
+Orch --> LLM : Analyze\n(Steps, Titles, Tags)
+LLM --> Orch : Metadata\n(JSON)
+
+Orch --> Aligner : Calculate\nTiming Alignment
+Aligner --> Orch : Timeline\n(JSON)
+
+Orch --> EdgeTTS : Generate Audio\n(Original Steps)
+EdgeTTS --> Orch : MP3 Files
+
+Orch --> VideoProc : Render Video\n(Zoom, Timeline)
+VideoProc --> Orch : MP4 File
+
+Orch --> Shorts : Create Shorts\n(Crop, Speed)
+Shorts --> Orch : MP4 Vertical
+
+Orch --> Screenshots : Extract\nFor Wiki
+Screenshots --> Orch : PNG Images
+
+' Output → Infrastructure
+Orch --> PostgreSQL : Update Guide\nStatus=Complete
+Orch --> MinIO : Upload\nProcessed Video
+Orch --> MinIO : Upload\nShorts Video
+Orch --> MinIO : Upload\nWiki Markdown
+
+' Result → Client
+API --> WebUI : Polling/WebSocket\nResult URL
+
+@enduml

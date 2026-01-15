@@ -1,0 +1,72 @@
+@startuml AutoDoc AI System Architecture
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle uml2
+
+' ========================================
+' Component Diagram - System Architecture
+' ========================================
+
+package "Frontend Layer" as Frontend {
+    component [Browser Extension\nRecording] as BrowserExt
+    component [Web Dashboard\nReact/Vue] as WebUI
+}
+
+package "API Layer - FastAPI" as API {
+    component [Auth API\nJWT, OAuth2] as AuthAPI
+    component [Guides API\nCRUD, Steps] as GuidesAPI
+    component [Processing API\nAI, Video] as ProcessingAPI
+    component [Storage API\nMinIO, URLs] as StorageAPI
+}
+
+package "Business Logic Services" as Services {
+    component [Video Processor\nFFmpeg, Zoom] as VideoProc
+    component [AI Service\nWhisper, LLM] as AISvc
+    component [TTS Service\nEdge TTS, Coqui] as TTSvc
+    component [Smart Aligner\nSync, Dead time] as Aligner
+    component [Storage Service\nMinIO Client] as StorageSvc
+}
+
+package "Task Queue - Celery" as Queue {
+    component [Celery Workers\nBackground Tasks] as Workers
+    queue [Redis\nMessage Broker] as RedisQ
+}
+
+package "Data Layer" as Data {
+    database [PostgreSQL\nGuides, Steps, Users] as DB
+    storage [MinIO S3\nVideos, Screenshots] as MinIO
+}
+
+package "AI Stack (GPU)" as AI {
+    component [Whisper Large v3\nASR Speech-to-Text] as Whisper
+    component [Qwen 2.5 72B\nLogic & Analysis] as LLM
+    component [Edge TTS\nNeural Voices] as EdgeTTS
+    component [Coqui XTTS v2\nVoice Cloning] as CoquiTTS
+}
+
+' Relationships
+BrowserExt --> APILayer : Record Events
+WebUI --> APILayer : API Calls
+
+API --> Services
+Services --> Queue
+Services --> Data
+
+Services --> VideoProc
+Services --> AISvc
+Services --> TTSSvc
+Services --> Aligner
+Services --> StorageSvc
+
+Workers --> RedisQ
+RedisQ --> Workers
+
+AISvc --> Whisper
+AISvc --> LLM
+TTSSvc --> EdgeTTS
+TTSSvc --> CoquiTTS
+
+VideoProc --> MinIO : Output Video
+StorageSvc --> MinIO : Files
+
+@enduml

@@ -1,0 +1,96 @@
+@startuml AutoDoc AI - REAL Architecture
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+
+' ========================================
+' REAL Architecture - How it Actually Works
+' ========================================
+
+title AutoDoc AI - Реальная архитектура
+
+package "Клиент" as Client {
+    component [Браузерное расширение\nЗапись] as Extension
+    component [Веб-интерфейс\nReact/Vue] as WebUI
+}
+
+package "API Server (FastAPI)" as API {
+    component [Auth\nJWT] as Auth
+    component [Guides\nCRUD] as Guides
+    component [Processing\nEnqueue задач] as Processing
+    component [Storage\nФайлы] as Storage
+}
+
+package "Инфраструктура" as Infra {
+    database [Redis Queue] as Redis
+    database [PostgreSQL\nМетаданные] as Postgres
+    storage [MinIO S3\nФайлы] as MinIO
+}
+
+package "Celery Worker (1 Python процесс)" as Worker {
+    
+    component [Pipeline Orchestrator\nКоординатор] as Orch
+    
+    package "AI Engine (Python библиотеки)" as AI {
+        component [Whisper\nASR] as Whisper
+        component [Qwen/Llama\nLLM] as LLM
+        component [Edge TTS\nTTS] as TTS
+    }
+    
+    package "Video Engine (FFmpeg врапперы)" as Video {
+        component [Video Processor\nРендеринг] as VideoProc
+        component [Shorts Generator] as Shorts
+        component [Screenshot Tool] as Screens
+    }
+    
+    component [Smart Aligner\nФункция] as Aligner
+}
+
+' === Поток данных ===
+
+' Клиент → API
+Extension --> API : Видео + лог событий
+WebUI --> API : REST вызовы
+
+' API → Инфраструктура
+API --> Redis : Добавить задачу
+API --> Postgres : Сохранить гайд
+API --> MinIO : Загрузить видео
+
+' Worker → Инфраструктура
+Redis --> Worker : Задача
+Worker --> Postgres : Читать гайд
+Worker --> MinIO : Скачать видео
+
+' Внутри Worker всё в памяти!
+Worker --> Orch : Старт
+
+Orch --> Whisper : Аудио → Текст
+Whisper --> Orch : Транскрипция (JSON)
+
+Orch --> LLM : Шаги, заголовки, теги
+LLM --> Orch : Структурированные данные
+
+Orch --> Aligner : Синхронизация
+Aligner --> Orch : Таймлайн (JSON)
+
+Orch --> TTS : Озвучка
+TTS --> Orch : MP3 файлы
+
+Orch --> VideoProc : Рендеринг
+VideoProc --> Orch : MP4 файл
+
+Orch --> Shorts : Кроп + ускорение
+Shorts --> Orch : Shorts MP4
+
+Orch --> Screens : Скриншоты
+Screens --> Orch : PNG изображения
+
+' Результат → Инфраструктура
+Orch --> Postgres : Обновить статус
+Orch --> MinIO : Видео + Shorts + Wiki
+
+' Ответ клиенту
+API --> WebUI : Polling/WebSocket
+
+@enduml
