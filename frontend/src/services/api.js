@@ -1,30 +1,12 @@
 import axios from 'axios'
 
-const API_BASE_URL = '/api/v1'
+const API_BASE = '/api/v1'
 
-// Create axios instance with default config
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: API_BASE,
+  timeout: 60000,
 })
 
-// Request interceptor
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if exists
-    const token = localStorage.getItem('authToken')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
-
-// Response interceptor
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -33,49 +15,101 @@ api.interceptors.response.use(
   }
 )
 
-// Guides API
-export const guidesApi = {
-  getAll: (params = {}) => api.get('/guides', { params }),
-  getById: (id) => api.get(`/guides/${id}`),
-  getByUuid: (uuid) => api.get(`/guides/uuid/${uuid}`),
-  create: (data) => api.post('/guides', data),
-  update: (id, data) => api.patch(`/guides/${id}`, data),
-  delete: (id) => api.delete(`/guides/${id}`),
-}
-
-// Steps API
-export const stepsApi = {
-  getByGuideId: (guideId) => api.get(`/steps/guide/${guideId}`),
-  update: (id, data) => api.patch(`/steps/${id}`, data),
-  reorder: (guideId, stepOrder) => api.post(`/steps/guide/${guideId}/reorder`, { step_order: stepOrder }),
-  delete: (id) => api.delete(`/steps/${id}`),
-}
-
-// Sessions API
+// === Sessions API ===
 export const sessionsApi = {
-  upload: (formData) => api.post('/sessions/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
-  process: (sessionId) => api.post(`/sessions/${sessionId}/process`),
-  getStatus: (sessionId) => api.get(`/sessions/${sessionId}/status`),
+  // Список сессий
+  getAll: (params = {}) => api.get('/sessions', { params }),
+  
+  // Загрузить запись (видео + аудио + лог кликов)
+  upload: async (videoFile, audioFile, clicksLog, title) => {
+    const formData = new FormData()
+    if (videoFile) formData.append('video', videoFile)
+    if (audioFile) formData.append('audio', audioFile)
+    if (clicksLog) formData.append('clicks_log', clicksLog)
+    if (title) formData.append('title', title)
+    
+    return api.post('/sessions/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  
+  // Получить статус сессии
+  getStatus: (sessionId) => api.get(`/sessions/${sessionId}`),
+  
+  // Получить транскрипцию
+  getTranscription: (sessionId) => api.get(`/sessions/${sessionId}/transcription`),
+  
+  // Удалить сессию
+  delete: (sessionId) => api.delete(`/sessions/${sessionId}`),
 }
 
-// Export API
-export const exportApi = {
-  markdown: (guideId) => api.get(`/export/guide/${guideId}/markdown`, { responseType: 'blob' }),
-  html: (guideId) => api.get(`/export/guide/${guideId}/html`, { responseType: 'blob' }),
+// === Guides API ===
+export const guidesApi = {
+  // Список гайдов
+  getAll: (params = {}) => api.get('/guides', { params }),
+  
+  // Получить гайд по ID
+  getById: (guideId) => api.get(`/guides/${guideId}`),
+  
+  // Получить гайд по UUID
+  getByUuid: (uuid) => api.get(`/guides/uuid/${uuid}`),
+  
+  // Обновить гайд
+  update: (guideId, data) => api.patch(`/guides/${guideId}`, data),
+  
+  // Удалить гайд
+  delete: (guideId) => api.delete(`/guides/${guideId}`),
 }
 
-// Shorts API
+// === Steps API ===
+export const stepsApi = {
+  // Получить шаги гайда
+  getByGuideId: (guideId) => api.get(`/guides/${guideId}/steps`),
+  
+  // Обновить шаг (текст, координаты маркера)
+  update: (stepId, data) => api.patch(`/steps/${stepId}`, data),
+  
+  // Изменить порядок шагов
+  reorder: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/reorder`, { step_ids: stepIds }),
+  
+  // Удалить шаг
+  delete: (stepId) => api.delete(`/steps/${stepId}`),
+  
+  // Объединить шаги
+  merge: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/merge`, { step_ids: stepIds }),
+}
+
+// === Shorts API ===
 export const shortsApi = {
-  generate: (guideId, options) => api.post(`/shorts/generate/${guideId}`, options),
+  // Запустить генерацию Shorts
+  generate: (guideId, options = {}) => api.post(`/shorts/generate/${guideId}`, options),
+  
+  // Получить статус генерации
   getStatus: (taskId) => api.get(`/shorts/status/${taskId}`),
-  download: (taskId) => api.get(`/shorts/download/${taskId}`, { responseType: 'blob' }),
+  
+  // Скачать готовое видео
+  download: (guideId) => api.get(`/guides/${guideId}/shorts/download`, { responseType: 'blob' }),
+  
+  // Получить превью (URL видео)
+  getPreview: (guideId) => api.get(`/guides/${guideId}/shorts/preview`),
 }
 
-// Health check
-export const healthApi = {
-  check: () => api.get('/health'),
+// === Export API ===
+export const exportApi = {
+  // Экспорт в Markdown
+  markdown: (guideId) => api.get(`/export/${guideId}/markdown`, { responseType: 'blob' }),
+  
+  // Экспорт в HTML
+  html: (guideId) => api.get(`/export/${guideId}/html`, { responseType: 'blob' }),
+}
+
+// === Storage API ===
+export const storageApi = {
+  // Получить URL для скачивания файла
+  getDownloadUrl: (fileKey) => api.get(`/storage/download-url`, { params: { key: fileKey } }),
+  
+  // Получить URL скриншота
+  getScreenshotUrl: (path) => `/api/v1/storage/file?path=${encodeURIComponent(path)}`,
 }
 
 export default api

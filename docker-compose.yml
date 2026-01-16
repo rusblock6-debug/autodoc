@@ -63,8 +63,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - ./frontend:/app
+      - /app/node_modules
     environment:
       - VITE_API_URL=http://autodoc-ai:8000
       - NODE_ENV=development

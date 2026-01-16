@@ -143,10 +143,12 @@ class StorageService:
         """
         Генерация ключа объекта для хранения.
         
-        Формат: {bucket}/{guide_id}/{subfolder}/{uuid}_{filename}
+        Формат: {guide_id}/{subfolder}/{uuid}_{filename}
+        или: {subfolder}/{uuid}_{filename}
+        или: {uuid}_{filename}
         
         Args:
-            bucket: Бакет
+            bucket: Бакет (не используется в пути, только для контекста)
             filename: Имя файла
             guide_id: ID гайда (опционально)
             subfolder: Подпапка (опционально)
@@ -154,7 +156,7 @@ class StorageService:
         Returns:
             Ключ объекта
         """
-        parts = [bucket.value]
+        parts = []
         
         if guide_id:
             parts.append(str(guide_id))
@@ -304,6 +306,27 @@ class StorageService:
             if "NoSuchKey" in str(e):
                 raise FileNotFoundError(f"Object not found: {object_key}")
             raise StorageError(f"Download failed: {e}")
+    
+    def get_file(
+        self,
+        object_key: str,
+        bucket: StorageBucket,
+    ) -> Optional[bytes]:
+        """
+        Получение файла из хранилища (упрощённый метод).
+        
+        Args:
+            object_key: Ключ объекта
+            bucket: Бакет
+            
+        Returns:
+            Байты файла или None если не найден
+        """
+        try:
+            return self.download_file(object_key, bucket)
+        except (FileNotFoundError, StorageError) as e:
+            logger.warning(f"File not found: {object_key} in {bucket.value}: {e}")
+            return None
     
     def get_presigned_upload_url(
         self,

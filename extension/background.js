@@ -1,400 +1,379 @@
 /**
- * AutoDoc AI Recorder - Background Service Worker
- * Управляет записью экрана, микрофона и передаёт данные на бэкенд
+ * НИР-Документ - Background Service Worker
+ * Управляет записью и передаёт данные на бэкенд
  */
 
 // Состояние записи
-let isRecording = false;
-let mediaRecorder = null;
-let audioRecorder = null;
-let recordedChunks = [];
-let audioChunks = [];
-let clickLog = [];
-let recordingStartTime = null;
-let streamIds = {};
-
-// Настройки
-let settings = {
-  captureAudio: true,
-  captureMicrophone: true,
-  apiEndpoint: "http://localhost:8000/api/v1/sessions/upload"
+let recordingState = {
+  isRecording: false,
+  startTime: null,
+  sessionName: '',
+  clickLog: [],
+  screenshots: [],  // Массив скриншотов (base64)
+  tabId: null
 };
 
-// Загружаем настройки
-chrome.storage.local.get(["autodoc_settings"], (result) => {
-  if (result.autodoc_settings) {
-    settings = { ...settings, ...result.autodoc_settings };
-  }
-});
+// Настройки
+const CONFIG = {
+  API_BASE: 'http://localhost:8000',
+  FRONTEND_URL: 'http://localhost:3000',
+  UPLOAD_ENDPOINT: '/api/v1/sessions/upload'
+};
 
-// Сообщения от popup и content scripts
+console.log('[НИР-Документ] Background script loaded');
+
+// ============================================
+// MESSAGE HANDLERS
+// ============================================
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[НИР-Документ] Message received:', message.type);
+  
   switch (message.type) {
-    case "START_RECORDING":
-      startRecording(sendResponse);
-      break;
+    case 'START_RECORDING':
+      handleStartRecording(message, sender, sendResponse);
+      return true;
       
-    case "STOP_RECORDING":
-      stopRecording(sendResponse);
-      break;
+    case 'STOP_RECORDING':
+      handleStopRecording(message, sendResponse);
+      return true;
       
-    case "GET_STATUS":
-      sendResponse({ isRecording });
-      break;
+    case 'GET_STATE':
+      sendResponse({ 
+        state: {
+          isRecording: recordingState.isRecording,
+          startTime: recordingState.startTime,
+          clickCount: recordingState.clickLog.length,
+          sessionName: recordingState.sessionName
+        }
+      });
+      return false;
       
-    case "LOG_CLICK":
-      logClick(message.data);
+    case 'CLICK_LOG':
+      handleClickLog(message.data, sender);
       sendResponse({ success: true });
-      break;
+      return false;
       
-    case "UPDATE_SETTINGS":
-      updateSettings(message.settings);
+    case 'KEY_LOG':
+    case 'INPUT_LOG':
+    case 'PAGE_INFO':
       sendResponse({ success: true });
-      break;
+      return false;
       
     default:
-      sendResponse({ error: "Unknown message type" });
+      sendResponse({ error: 'Unknown message type' });
+      return false;
   }
-  
-  return true; // Асинхронный ответ
 });
 
-/**
- * Начать запись
- */
-async function startRecording(sendResponse) {
-  if (isRecording) {
-    sendResponse({ error: "Already recording" });
+// ============================================
+// RECORDING FUNCTIONS
+// ============================================
+
+async function handleStartRecording(message, sender, sendResponse) {
+  if (recordingState.isRecording) {
+    sendResponse({ error: 'Already recording' });
     return;
   }
   
   try {
-    clickLog = [];
-    recordedChunks = [];
-    audioChunks = [];
-    recordingStartTime = Date.now();
+    recordingState.sessionName = message.sessionName || 'Новый гайд';
+    recordingState.clickLog = [];
+    recordingState.screenshots = [];
+    recordingState.startTime = Date.now();
+    recordingState.tabId = null;
     
-    // Запрашиваем разрешения на захват
-    const desktopStreamId = await chrome.desktopCapture.chooseDesktopMedia(
-      ["screen", "window"],
-      { tabs: true }  // Показываем только вкладки
-    );
+    // Получаем активную вкладку
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
     
-    if (!desktopStreamId || desktopStreamId === "") {
-      throw new Error("User cancelled screen capture");
-    }
-    
-    streamIds.desktop = desktopStreamId;
-    
-    // Создаём потоки
-    const desktopStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        mandatory: {
-          chromeMediaSource: "desktop",
-          chromeMediaSourceId: desktopStreamId
+    if (tab && tab.id) {
+      recordingState.tabId = tab.id;
+      
+      // Отправляем сообщение content script о начале записи
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
+        console.log('[НИР-Документ] Content script notified');
+      } catch (e) {
+        console.log('[НИР-Документ] Content script not ready, injecting...');
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js']
+          });
+          // Даём время на загрузку
+          await new Promise(r => setTimeout(r, 100));
+          await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
+        } catch (injectError) {
+          console.log('[НИР-Документ] Could not inject content script:', injectError);
         }
-      },
-      audio: settings.captureAudio ? {
-        mandatory: {
-          chromeMediaSource: "desktop"
-        }
-      } : false
-    });
-    
-    // Захват микрофона если нужен
-    let micStream = null;
-    if (settings.captureMicrophone) {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    }
-    
-    // Смешиваем аудио (десктоп + микрофон)
-    let finalStream = desktopStream;
-    
-    if (micStream && settings.captureAudio) {
-      const audioContext = new AudioContext();
-      const dest = audioContext.createMediaStreamDestination();
-      
-      const desktopAudio = audioContext.createMediaStreamSource(desktopStream);
-      const micAudio = audioContext.createMediaStreamSource(micStream);
-      
-      desktopAudio.connect(dest);
-      micAudio.connect(dest);
-      
-      // Создаём новый поток с видео + миксаное аудио
-      const videoTrack = desktopStream.getVideoTracks()[0];
-      finalStream = new MediaStream([videoTrack, ...dest.stream.getAudioTracks()]);
-    }
-    
-    // Настраиваем MediaRecorder для видео
-    mediaRecorder = new MediaRecorder(finalStream, {
-      mimeType: "video/webm;codecs=vp9"
-    });
-    
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        recordedChunks.push(event.data);
       }
-    };
-    
-    mediaRecorder.onstop = async () => {
-      // Останавливаем все треки
-      finalStream.getTracks().forEach(track => track.stop());
-      if (micStream) micStream.getTracks().forEach(track => track.stop());
-      
-      // Генерируем файлы
-      await finalizeRecording();
-    };
-    
-    // Отдельный рекордер для аудио (если нужно)
-    if (micStream && !settings.captureAudio) {
-      // Записываем только микрофон отдельно
-      audioRecorder = new MediaRecorder(micStream);
-      
-      audioRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-        }
-      };
-      
-      audioRecorder.start(1000); // Записываем по частям
     }
     
-    // Начинаем запись
-    mediaRecorder.start(1000);
-    isRecording = true;
+    recordingState.isRecording = true;
     
-    // Отправляем уведомление
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl: "icons/icon128.png",
-      title: "AutoDoc AI Recorder",
-      message: "Запись началась. Кликайте по интерфейсу!"
+    // Показываем уведомление
+    showNotification('recording-started', 'НИР-Документ', 'Запись началась! Кликайте по элементам.');
+    
+    sendResponse({ 
+      success: true, 
+      recordingId: recordingState.startTime 
     });
     
-    sendResponse({ success: true, recordingId: Date.now() });
-    
   } catch (error) {
-    console.error("Recording failed:", error);
+    console.error('[НИР-Документ] Start recording error:', error);
     sendResponse({ error: error.message });
   }
 }
 
-/**
- * Остановить запись
- */
-async function stopRecording(sendResponse) {
-  if (!isRecording) {
-    sendResponse({ error: "Not recording" });
+async function handleStopRecording(message, sendResponse) {
+  if (!recordingState.isRecording) {
+    sendResponse({ error: 'Not recording' });
     return;
   }
   
   try {
-    // Останавливаем рекордеры
-    mediaRecorder.stop();
-    
-    if (audioRecorder) {
-      audioRecorder.stop();
+    // Обновляем имя если передано новое
+    if (message && message.sessionName) {
+      recordingState.sessionName = message.sessionName;
     }
     
-    isRecording = false;
-    
-    // Ждём немного чтобы данные сохранились
-    setTimeout(() => {
-      finalizeRecording();
-    }, 1000);
-    
-    sendResponse({ success: true });
-    
-  } catch (error) {
-    console.error("Stop recording failed:", error);
-    sendResponse({ error: error.message });
-  }
-}
-
-/**
- * Финализация записи - создание файлов и отправка на бэкенд
- */
-async function finalizeRecording() {
-  try {
-    // Создаём blob для видео
-    const videoBlob = new Blob(recordedChunks, { type: "video/webm" });
-    
-    // Создаём blob для аудио (если записывался отдельно)
-    let audioBlob = null;
-    if (audioChunks.length > 0) {
-      audioBlob = new Blob(audioChunks, { type: "audio/wav" });
-    } else {
-      // Если аудио было в видео, извлекаем из видео
-      audioBlob = await extractAudioFromVideo(videoBlob);
+    // Останавливаем запись в content script
+    if (recordingState.tabId) {
+      try {
+        await chrome.tabs.sendMessage(recordingState.tabId, { type: 'STOP_RECORDING' });
+      } catch (e) {
+        console.log('[НИР-Документ] Could not stop content script:', e);
+      }
     }
     
-    // Создаём JSON лог кликов
-    const clicksLog = {
-      version: "1.0",
-      start_time: recordingStartTime,
+    // Собираем данные
+    const sessionData = {
+      session_name: recordingState.sessionName,
+      start_time: recordingState.startTime,
       end_time: Date.now(),
-      clicks: clickLog
+      duration_seconds: (Date.now() - recordingState.startTime) / 1000,
+      clicks: recordingState.clickLog,
+      click_count: recordingState.clickLog.length
     };
     
-    const clicksBlob = new Blob([JSON.stringify(clicksLog, null, 2)], { 
-      type: "application/json" 
-    });
+    console.log('[НИР-Документ] Session data:', sessionData);
     
     // Отправляем на бэкенд
-    await uploadToBackend(videoBlob, audioBlob, clicksBlob);
+    const result = await uploadSession(sessionData);
     
-    // Очищаем память
-    recordedChunks = [];
-    audioChunks = [];
-    clickLog = [];
+    // Сбрасываем состояние
+    const clickCount = recordingState.clickLog.length;
+    recordingState.isRecording = false;
+    recordingState.startTime = null;
+    recordingState.clickLog = [];
+    recordingState.screenshots = [];
+    
+    if (result.success && result.guide_id) {
+      // Если гайд уже создан, открываем сразу редактор
+      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
+      const url = `${CONFIG.FRONTEND_URL}/guide/${result.guide_id}/edit`;
+      console.log('[НИР-Документ] Opening guide editor:', url);
+      chrome.tabs.create({ url });
+    } else if (result.success && result.session_id) {
+      // Иначе открываем страницу статуса сессии
+      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
+      const url = `${CONFIG.FRONTEND_URL}/session/${result.session_id}`;
+      console.log('[НИР-Документ] Opening session status:', url);
+      chrome.tabs.create({ url });
+    } else if (result.success) {
+      // Успех но нет session_id - открываем Dashboard
+      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
+      chrome.tabs.create({ url: CONFIG.FRONTEND_URL });
+    } else {
+      showNotification('upload-error', 'НИР-Документ - Ошибка', result.error || 'Не удалось сохранить');
+      // Всё равно открываем Dashboard
+      chrome.tabs.create({ url: CONFIG.FRONTEND_URL });
+    }
+    
+    sendResponse({ 
+      success: true, 
+      sessionData,
+      uploadResult: result
+    });
     
   } catch (error) {
-    console.error("Finalization failed:", error);
+    console.error('[НИР-Документ] Stop recording error:', error);
+    recordingState.isRecording = false;
+    sendResponse({ error: error.message });
   }
 }
 
-/**
- * Извлечь аудио из видео (если оно было внутри)
- */
-async function extractAudioFromVideo(videoBlob) {
-  // Создаём URL для видео
-  const videoUrl = URL.createObjectURL(videoBlob);
+function handleClickLog(data, sender) {
+  if (!recordingState.isRecording) return;
   
-  // Используем AudioContext для извлечения
-  const audioContext = new AudioContext();
-  const response = await fetch(videoUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  const timestamp = (Date.now() - recordingState.startTime) / 1000;
+  const clickIndex = recordingState.clickLog.length;
   
-  // Конвертируем в WAV
-  const wavBlob = audioBufferToWav(audioBuffer);
-  
-  URL.revokeObjectURL(videoUrl);
-  
-  return wavBlob;
-}
-
-/**
- * Конвертация AudioBuffer в WAV
- */
-function audioBufferToWav(buffer) {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const format = 1; // PCM
-  const bitDepth = 16;
-  
-  const bytesPerSample = bitDepth / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  
-  const dataLength = buffer.length * blockAlign;
-  const bufferLength = 44 + dataLength;
-  
-  const arrayBuffer = new ArrayBuffer(bufferLength);
-  const view = new DataView(arrayBuffer);
-  
-  // WAV заголовок
-  writeString(view, 0, "RIFF");
-  view.setUint32(4, 36 + dataLength, true);
-  writeString(view, 8, "WAVE");
-  writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, format, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitDepth, true);
-  writeString(view, 36, "data");
-  view.setUint32(40, dataLength, true);
-  
-  // Данные
-  const channels = [];
-  for (let i = 0; i < numChannels; i++) {
-    channels.push(buffer.getChannelData(i));
-  }
-  
-  let offset = 44;
-  for (let i = 0; i < buffer.length; i++) {
-    for (let channel = 0; channel < numChannels; channel++) {
-      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-      offset += 2;
-    }
-  }
-  
-  return new Blob([arrayBuffer], { type: "audio/wav" });
-}
-
-function writeString(view, offset, string) {
-  for (let i = 0; i < string.length; i++) {
-    view.setUint8(offset + i, string.charCodeAt(i));
-  }
-}
-
-/**
- * Логирование клика
- */
-function logClick(data) {
-  const timestamp = (Date.now() - recordingStartTime) / 1000;
-  
-  clickLog.push({
+  const clickEntry = {
     timestamp: timestamp,
     x: data.x,
     y: data.y,
-    element: data.element || null,
-    page_url: data.url
-  });
+    element: data.tagName || 'unknown',
+    element_id: data.id || null,
+    element_class: data.className || null,
+    element_text: data.text || null,
+    viewport_width: data.viewportWidth,
+    viewport_height: data.viewportHeight,
+    page_url: sender.tab?.url || null,
+    screenshot_index: clickIndex  // Индекс скриншота
+  };
+  
+  recordingState.clickLog.push(clickEntry);
+  
+  console.log(`[НИР-Документ] Click #${recordingState.clickLog.length}: ${clickEntry.x}, ${clickEntry.y}`);
+  
+  // Делаем скриншот
+  captureScreenshot(clickIndex, sender.tab?.windowId);
+  
+  // Обновляем popup
+  chrome.runtime.sendMessage({
+    type: 'CLICK_UPDATE',
+    count: recordingState.clickLog.length
+  }).catch(() => {});
 }
 
-/**
- * Отправка файлов на бэкенд
- */
-async function uploadToBackend(videoBlob, audioBlob, clicksBlob) {
+// Захват скриншота
+async function captureScreenshot(clickIndex, windowId) {
   try {
-    const formData = new FormData();
-    formData.append("video", videoBlob, "recording.webm");
-    formData.append("audio", audioBlob, "audio.wav");
-    formData.append("clicks_log", clicksBlob, "clicks.json");
-    
-    const response = await fetch(settings.apiEndpoint, {
-      method: "POST",
-      body: formData
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
+      format: 'png',
+      quality: 90
     });
     
-    if (response.ok) {
-      const result = await response.json();
-      
-      chrome.notifications.create({
-        type: "basic",
-        iconUrl: "icons/icon128.png",
-        title: "AutoDoc AI",
-        message: `Гайд создан! ID: ${result.session_id}`
-      });
-      
-      // Открываем страницу редактирования
-      chrome.tabs.create({
-        url: `http://localhost:8000/guides/${result.session_id}`
-      });
-    } else {
-      throw new Error(`Upload failed: ${response.status}`);
-    }
+    recordingState.screenshots[clickIndex] = dataUrl;
+    console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} captured (${Math.round(dataUrl.length / 1024)}KB)`);
     
   } catch (error) {
-    console.error("Upload failed:", error);
-    
-    chrome.notifications.create({
-      type: "basic",
-      iconUrl: "icons/icon128.png",
-      title: "AutoDoc AI - Ошибка",
-      message: "Не удалось загрузить запись: " + error.message
-    });
+    console.error(`[НИР-Документ] Screenshot #${clickIndex + 1} failed:`, error);
+    recordingState.screenshots[clickIndex] = null;
   }
 }
 
-/**
- * Обновление настроек
- */
-function updateSettings(newSettings) {
-  settings = { ...settings, ...newSettings };
-  chrome.storage.local.set({ autodoc_settings: settings });
+// ============================================
+// API FUNCTIONS
+// ============================================
+
+async function uploadSession(sessionData) {
+  try {
+    // Добавляем скриншоты к кликам
+    const clicksWithScreenshots = sessionData.clicks.map((click, index) => ({
+      ...click,
+      has_screenshot: !!recordingState.screenshots[index]
+    }));
+    
+    const clicksJson = JSON.stringify({
+      version: '1.0',
+      session_name: sessionData.session_name,
+      start_time: sessionData.start_time,
+      end_time: sessionData.end_time,
+      duration_seconds: sessionData.duration_seconds,
+      clicks: clicksWithScreenshots
+    }, null, 2);
+    
+    console.log('[НИР-Документ] Clicks JSON:', clicksJson);
+    
+    const formData = new FormData();
+    const clicksBlob = new Blob([clicksJson], { type: 'application/json' });
+    formData.append('clicks_log', clicksBlob, 'clicks.json');
+    formData.append('title', sessionData.session_name || 'Новый гайд');
+    formData.append('duration_seconds', String(sessionData.duration_seconds || 0));
+    formData.append('click_count', String(sessionData.click_count || 0));
+    
+    // Добавляем скриншоты
+    for (let i = 0; i < recordingState.screenshots.length; i++) {
+      const screenshot = recordingState.screenshots[i];
+      if (screenshot) {
+        // Конвертируем data URL в Blob
+        const response = await fetch(screenshot);
+        const blob = await response.blob();
+        formData.append('screenshots', blob, `screenshot_${i}.png`);
+        console.log(`[НИР-Документ] Added screenshot_${i}.png (${Math.round(blob.size / 1024)}KB)`);
+      }
+    }
+    
+    const url = CONFIG.API_BASE + CONFIG.UPLOAD_ENDPOINT;
+    console.log('[НИР-Документ] Uploading to:', url);
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData
+    });
+    
+    console.log('[НИР-Документ] Response status:', response.status);
+    
+    const responseText = await response.text();
+    console.log('[НИР-Документ] Response body:', responseText);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${responseText}`);
+    }
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      throw new Error('Invalid JSON response: ' + responseText);
+    }
+    
+    console.log('[НИР-Документ] Upload success:', result);
+    
+    return {
+      success: true,
+      session_id: result.session_id,
+      guide_id: result.guide_id
+    };
+    
+  } catch (error) {
+    console.error('[НИР-Документ] Upload error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
 }
+
+// ============================================
+// UTILITIES
+// ============================================
+
+function showNotification(id, title, message) {
+  try {
+    if (chrome.notifications && chrome.notifications.create) {
+      chrome.notifications.create(id, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: title,
+        message: message
+      });
+    }
+  } catch (e) {
+    console.log('[НИР-Документ] Notification error:', e);
+  }
+}
+
+// Сброс при установке
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('[НИР-Документ] Extension installed');
+  recordingState = {
+    isRecording: false,
+    startTime: null,
+    sessionName: '',
+    clickLog: [],
+    screenshots: [],
+    tabId: null
+  };
+});
+
+// Обработка закрытия вкладки
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (recordingState.tabId === tabId && recordingState.isRecording) {
+    console.log('[НИР-Документ] Tab closed, stopping recording');
+    handleStopRecording({}, () => {});
+  }
+});

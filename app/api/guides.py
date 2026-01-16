@@ -20,7 +20,7 @@ from app.schemas import (
     GuideUpdate,
     GuideListResponse,
     GuideDetailResponse,
-    GuideStepResponse,
+    GuideStepResponseSimple,
     GuideStepUpdate,
     ScreenshotResponse,
     PaginatedResponse,
@@ -112,8 +112,6 @@ async def get_guide(
         .where(Guide.id == guide_id)
         .options(
             selectinload(Guide.steps),
-            selectinload(Guide.screenshots),
-            selectinload(Guide.processing_jobs),
         )
     )
     
@@ -142,7 +140,6 @@ async def get_guide_by_uuid(
         .where(Guide.uuid == guide_uuid)
         .options(
             selectinload(Guide.steps),
-            selectinload(Guide.screenshots),
         )
     )
     
@@ -154,10 +151,6 @@ async def get_guide_by_uuid(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Guide with uuid {guide_uuid} not found",
         )
-    
-    # Увеличиваем счетчик просмотров
-    guide.view_count += 1
-    await db.commit()
     
     return GuideDetailResponse.model_validate(guide)
 
@@ -215,6 +208,9 @@ async def update_guide(
     update_data = guide_update.model_dump(exclude_unset=True)
     
     for field, value in update_data.items():
+        # Конвертируем status из строки в enum
+        if field == "status" and isinstance(value, str):
+            value = GuideStatus(value)
         setattr(guide, field, value)
     
     await db.commit()
@@ -266,11 +262,11 @@ async def delete_guide(
 
 # === Шаги гайда ===
 
-@router.get("/{guide_id}/steps", response_model=List[GuideStepResponse])
+@router.get("/{guide_id}/steps", response_model=List[GuideStepResponseSimple])
 async def get_guide_steps(
     guide_id: int,
     db: AsyncSession = Depends(get_db),
-) -> List[GuideStepResponse]:
+) -> List[GuideStepResponseSimple]:
     """
     Получение всех шагов гайда.
     """
@@ -283,15 +279,15 @@ async def get_guide_steps(
     result = await db.execute(query)
     steps = result.scalars().all()
     
-    return [GuideStepResponse.model_validate(s) for s in steps]
+    return [GuideStepResponseSimple.model_validate(s) for s in steps]
 
 
-@router.get("/{guide_id}/steps/{step_id}", response_model=GuideStepResponse)
+@router.get("/{guide_id}/steps/{step_id}", response_model=GuideStepResponseSimple)
 async def get_guide_step(
     guide_id: int,
     step_id: int,
     db: AsyncSession = Depends(get_db),
-) -> GuideStepResponse:
+) -> GuideStepResponseSimple:
     """
     Получение конкретного шага гайда.
     """
@@ -309,16 +305,16 @@ async def get_guide_step(
             detail=f"Step {step_id} not found in guide {guide_id}",
         )
     
-    return GuideStepResponse.model_validate(step)
+    return GuideStepResponseSimple.model_validate(step)
 
 
-@router.patch("/{guide_id}/steps/{step_id}", response_model=GuideStepResponse)
+@router.patch("/{guide_id}/steps/{step_id}", response_model=GuideStepResponseSimple)
 async def update_guide_step(
     guide_id: int,
     step_id: int,
     step_update: GuideStepUpdate,
     db: AsyncSession = Depends(get_db),
-) -> GuideStepResponse:
+) -> GuideStepResponseSimple:
     """
     Обновление шага гайда.
     
@@ -356,7 +352,7 @@ async def update_guide_step(
     
     logger.info(f"Updated step {step_id} in guide {guide_id}")
     
-    return GuideStepResponse.model_validate(step)
+    return GuideStepResponseSimple.model_validate(step)
 
 
 # === Скриншоты ===

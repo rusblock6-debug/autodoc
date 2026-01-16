@@ -22,7 +22,7 @@ from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/steps", tags=["Steps"])
+router = APIRouter(tags=["Steps"])
 
 
 class StepUpdate:
@@ -51,6 +51,64 @@ class MergeRequest:
     def __init__(self, step_ids: List[int], merged_text: str):
         self.step_ids = step_ids
         self.merged_text = merged_text
+
+
+@router.patch("/{step_id}")
+async def update_step(
+    step_id: int,
+    body: Dict[str, Any],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Обновить шаг (текст и/или координаты маркера).
+    
+    Request body (все поля опциональны):
+    {
+        "edited_text": "Новый текст",
+        "click_x": 450,
+        "click_y": 320
+    }
+    """
+    result = await db.execute(
+        select(GuideStep).where(GuideStep.id == step_id)
+    )
+    step = result.scalar_one_or_none()
+    
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    updated = False
+    
+    # Обновляем текст если передан
+    if "edited_text" in body:
+        step.edited_text = body["edited_text"]
+        updated = True
+        logger.info(f"Step {step_id} text updated")
+    
+    # Обновляем координаты если переданы
+    if "click_x" in body:
+        step.click_x = body["click_x"]
+        updated = True
+    if "click_y" in body:
+        step.click_y = body["click_y"]
+        updated = True
+    
+    if "click_x" in body or "click_y" in body:
+        logger.info(f"Step {step_id} marker moved to ({step.click_x}, {step.click_y})")
+    
+    if updated:
+        step.updated_at = __import__("datetime").datetime.utcnow()
+        await db.commit()
+        await db.refresh(step)
+    
+    return {
+        "success": True,
+        "id": step.id,
+        "step_number": step.step_number,
+        "edited_text": step.edited_text,
+        "click_x": step.click_x,
+        "click_y": step.click_y
+    }
 
 
 @router.patch("/{step_id}/text")

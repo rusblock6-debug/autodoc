@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoDoc AI Recorder</title>
+    <title>НИР-Документ</title>
     <style>
         * {
             margin: 0;
@@ -218,52 +218,40 @@
 </head>
 <body>
     <div class="header">
-        <h1>AutoDoc AI</h1>
-        <p>Record screen & create guides</p>
+        <h1>НИР-Документ</h1>
+        <p>Запись экрана и создание гайдов</p>
     </div>
     
     <div class="status-panel">
         <div class="status-item">
-            <span class="status-label">Status</span>
-            <span class="status-value" id="status">Ready</span>
+            <span class="status-label">Статус</span>
+            <span class="status-value" id="status">Готов</span>
         </div>
         <div class="status-item">
-            <span class="status-label">Duration</span>
-            <span class="status-value" id="duration">00:00:00</span>
+            <span class="status-label">Время</span>
+            <span class="status-value" id="duration">00:00</span>
         </div>
         <div class="status-item">
-            <span class="status-label">Clicks</span>
+            <span class="status-label">Кликов</span>
             <span class="status-value" id="clickCount">0</span>
-        </div>
-        <div class="status-item">
-            <span class="status-label">Microphone</span>
-            <span class="status-value" id="micStatus">Off</span>
         </div>
     </div>
     
     <div class="session-name">
-        <label for="sessionName">Session Name</label>
-        <input type="text" id="sessionName" placeholder="e.g., How to Create Invoice">
+        <label for="sessionName">Название гайда</label>
+        <input type="text" id="sessionName" placeholder="Например: Как создать документ">
     </div>
     
     <div class="control-buttons">
-        <button class="btn btn-primary" id="startBtn">Start Recording</button>
-        <button class="btn btn-danger" id="stopBtn" disabled>Stop</button>
+        <button class="btn btn-primary" id="startBtn">Начать запись</button>
+        <button class="btn btn-danger" id="stopBtn" disabled>Стоп</button>
     </div>
     
     <div class="actions">
         <button class="action-btn" id="viewGuidesBtn">
             <span class="action-icon">📋</span>
-            <span>View All Guides</span>
+            <span>Все гайды</span>
         </button>
-        <button class="action-btn" id="openEditorBtn" disabled>
-            <span class="action-icon">✏️</span>
-            <span>Open Editor</span>
-        </button>
-    </div>
-    
-    <div class="footer">
-        <a href="#" id="settingsLink">Settings</a>
     </div>
     
     <script src="popup.js"></script>

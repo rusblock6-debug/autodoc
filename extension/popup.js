@@ -1,240 +1,240 @@
-// extension/popup.js - UI logic for the Chrome Extension popup
-// Handles recording controls and communication with background script
+/**
+ * НИР-Документ - Popup UI
+ */
 
-class AutoDocPopup {
-    constructor() {
-        this.recordingState = {
-            isRecording: false,
-            startTime: null,
-            timerInterval: null,
-            clickCount: 0,
-            micEnabled: false
-        };
-        
-        this.init();
-    }
-    
-    init() {
-        this.bindElements();
-        this.bindEvents();
-        this.loadState();
-    }
-    
-    bindElements() {
-        this.elements = {
-            startBtn: document.getElementById('startBtn'),
-            stopBtn: document.getElementById('stopBtn'),
-            status: document.getElementById('status'),
-            duration: document.getElementById('duration'),
-            clickCount: document.getElementById('clickCount'),
-            micStatus: document.getElementById('micStatus'),
-            sessionName: document.getElementById('sessionName'),
-            viewGuidesBtn: document.getElementById('viewGuidesBtn'),
-            openEditorBtn: document.getElementById('openEditorBtn'),
-            settingsLink: document.getElementById('settingsLink')
-        };
-    }
-    
-    bindEvents() {
-        this.elements.startBtn.addEventListener('click', () => this.startRecording());
-        this.elements.stopBtn.addEventListener('click', () => this.stopRecording());
-        this.elements.viewGuidesBtn.addEventListener('click', () => this.openGuidesPage());
-        this.elements.openEditorBtn.addEventListener('click', () => this.openEditor());
-        this.elements.settingsLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            chrome.runtime.openOptionsPage?.() || alert('Settings page not configured');
-        });
-    }
-    
-    loadState() {
-        // Get current state from background script
-        chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
-            if (response && response.state) {
-                this.recordingState = { ...this.recordingState, ...response.state };
-                this.updateUI();
-            }
-        });
-    }
-    
-    async startRecording() {
-        const sessionName = this.elements.sessionName.value.trim() || 'Untitled Session';
-        
-        try {
-            // Request media stream
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    displaySurface: 'browser',
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                    frameRate: { ideal: 30 }
-                },
-                audio: true
-            });
-            
-            // Check if user wants microphone audio
-            const audioTrack = stream.getAudioTracks()[0];
-            if (audioTrack) {
-                // Try to get microphone as well
-                try {
-                    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    this.recordingState.micEnabled = true;
-                    
-                    // Combine audio tracks
-                    const audioContext = new AudioContext();
-                    const dest = audioContext.createMediaStreamDestination();
-                    
-                    audioTrack.clone().connect(dest);
-                    micStream.getAudioTracks()[0].connect(dest);
-                    
-                    // Replace audio track with combined audio
-                    const newStream = new MediaStream([
-                        ...stream.getVideoTracks(),
-                        ...dest.stream.getAudioTracks()
-                    ]);
-                    
-                    this.currentStream = newStream;
-                } catch (micError) {
-                    console.log('Microphone access denied, using system audio only');
-                    this.currentStream = stream;
-                }
-            } else {
-                this.currentStream = stream;
-            }
-            
-            // Start recording in background
-            chrome.runtime.sendMessage({
-                type: 'START_RECORDING',
-                sessionName: sessionName,
-                streamId: stream.id
-            });
-            
-            // Update state
-            this.recordingState.isRecording = true;
-            this.recordingState.startTime = Date.now();
-            this.recordingState.clickCount = 0;
-            
-            // Start timer
+class Popup {
+  constructor() {
+    this.state = {
+      isRecording: false,
+      startTime: null,
+      clickCount: 0,
+      timerInterval: null
+    };
+    this.currentStream = null;
+    this.init();
+  }
+  
+  async init() {
+    this.bindElements();
+    this.bindEvents();
+    await this.loadState();
+    this.updateUI();
+  }
+  
+  bindElements() {
+    this.el = {
+      startBtn: document.getElementById('startBtn'),
+      stopBtn: document.getElementById('stopBtn'),
+      status: document.getElementById('status'),
+      duration: document.getElementById('duration'),
+      clickCount: document.getElementById('clickCount'),
+      sessionName: document.getElementById('sessionName'),
+      viewGuidesBtn: document.getElementById('viewGuidesBtn')
+    };
+  }
+  
+  bindEvents() {
+    this.el.startBtn.addEventListener('click', () => this.startRecording());
+    this.el.stopBtn.addEventListener('click', () => this.stopRecording());
+    this.el.viewGuidesBtn.addEventListener('click', () => this.openDashboard());
+  }
+  
+  async loadState() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'GET_STATE' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log('Could not get state:', chrome.runtime.lastError);
+          resolve();
+          return;
+        }
+        if (response?.state) {
+          this.state.isRecording = response.state.isRecording;
+          this.state.startTime = response.state.startTime;
+          this.state.clickCount = response.state.clickCount || 0;
+          // Восстанавливаем имя сессии
+          if (response.state.sessionName) {
+            this.el.sessionName.value = response.state.sessionName;
+          }
+          if (this.state.isRecording && this.state.startTime) {
             this.startTimer();
-            
-            // Listen for stream end
-            stream.getVideoTracks()[0].onended = () => {
-                this.stopRecording();
-            };
-            
-            this.updateUI();
-            
-        } catch (error) {
-            console.error('Failed to start recording:', error);
-            alert('Failed to start recording. Please ensure you have granted the necessary permissions.');
+          }
         }
+        resolve();
+      });
+    });
+  }
+  
+  async startRecording() {
+    const sessionName = this.el.sessionName.value.trim() || 'Новый гайд';
     
-    }
+    this.el.startBtn.disabled = true;
+    this.el.startBtn.textContent = 'Запуск...';
     
-    stopRecording() {
-        if (!this.recordingState.isRecording) return;
-        
-        chrome.runtime.sendMessage({
-            type: 'STOP_RECORDING',
-            sessionName: this.elements.sessionName.value.trim()
-        });
-        
-        // Stop all tracks
-        if (this.currentStream) {
-            this.currentStream.getTracks().forEach(track => track.stop());
+    try {
+      // Запрашиваем захват экрана
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'browser',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+      
+      this.currentStream = stream;
+      
+      // Слушаем остановку захвата
+      stream.getVideoTracks()[0].onended = () => {
+        console.log('Stream ended by user');
+        this.stopRecording();
+      };
+      
+      // Отправляем в background
+      chrome.runtime.sendMessage({
+        type: 'START_RECORDING',
+        sessionName: sessionName
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error:', chrome.runtime.lastError);
+          alert('Ошибка: ' + chrome.runtime.lastError.message);
+          this.stopStream();
+          this.resetUI();
+          return;
         }
         
-        // Update state
-        this.recordingState.isRecording = false;
-        this.recordingState.startTime = null;
-        
-        // Stop timer
-        this.stopTimer();
-        
-        // Enable editor button
-        this.elements.openEditorBtn.disabled = false;
-        
-        this.updateUI();
-    }
-    
-    startTimer() {
-        this.recordingState.timerInterval = setInterval(() => {
-            const elapsed = Date.now() - this.recordingState.startTime;
-            this.elements.duration.textContent = this.formatDuration(elapsed);
-        }, 1000);
-    }
-    
-    stopTimer() {
-        if (this.recordingState.timerInterval) {
-            clearInterval(this.recordingState.timerInterval);
-            this.recordingState.timerInterval = null;
-        }
-    }
-    
-    formatDuration(ms) {
-        const seconds = Math.floor(ms / 1000);
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        
-        if (hours > 0) {
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    
-    updateUI() {
-        const { isRecording, clickCount, micEnabled } = this.recordingState;
-        
-        // Update buttons
-        this.elements.startBtn.disabled = isRecording;
-        this.elements.stopBtn.disabled = !isRecording;
-        
-        // Update status
-        if (isRecording) {
-            this.elements.status.textContent = 'Recording';
-            this.elements.status.classList.add('recording');
-            this.elements.startBtn.textContent = 'Recording...';
+        if (response?.success) {
+          this.state.isRecording = true;
+          this.state.startTime = Date.now();
+          this.state.clickCount = 0;
+          this.startTimer();
+          this.updateUI();
         } else {
-            this.elements.status.textContent = 'Ready';
-            this.elements.status.classList.remove('recording');
-            this.elements.startBtn.textContent = 'Start Recording';
+          alert('Не удалось начать запись: ' + (response?.error || 'Неизвестная ошибка'));
+          this.stopStream();
+          this.resetUI();
         }
-        
-        // Update click count
-        this.elements.clickCount.textContent = clickCount;
-        
-        // Update mic status
-        this.elements.micStatus.textContent = micEnabled ? 'On' : 'Off';
-        this.elements.micStatus.style.color = micEnabled ? '#4CAF50' : '#FF4444';
-        
-        // Update session name input
-        this.elements.sessionName.disabled = isRecording;
+      });
+      
+    } catch (error) {
+      console.error('Screen capture error:', error);
+      this.resetUI();
+      
+      if (error.name === 'NotAllowedError') {
+        // Пользователь отменил - это нормально
+      } else {
+        alert('Ошибка: ' + error.message);
+      }
+    }
+  }
+  
+  stopRecording() {
+    if (!this.state.isRecording) return;
+    
+    // Получаем текущее имя перед остановкой
+    const currentName = this.el.sessionName.value.trim() || 'Новый гайд';
+    
+    this.el.stopBtn.disabled = true;
+    this.el.stopBtn.textContent = 'Сохранение...';
+    
+    this.stopStream();
+    
+    chrome.runtime.sendMessage({ 
+      type: 'STOP_RECORDING',
+      sessionName: currentName  // Передаём актуальное имя
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Stop error:', chrome.runtime.lastError);
+      }
+      
+      this.state.isRecording = false;
+      this.stopTimer();
+      this.updateUI();
+      
+      if (response?.success) {
+        const clicks = response.sessionData?.click_count || 0;
+        this.el.status.textContent = `✓ Сохранено (${clicks} кликов)`;
+      } else {
+        this.el.status.textContent = 'Ошибка сохранения';
+      }
+    });
+  }
+  
+  stopStream() {
+    if (this.currentStream) {
+      this.currentStream.getTracks().forEach(track => track.stop());
+      this.currentStream = null;
+    }
+  }
+  
+  resetUI() {
+    this.el.startBtn.disabled = false;
+    this.el.startBtn.textContent = 'Начать запись';
+  }
+  
+  startTimer() {
+    this.stopTimer();
+    this.state.timerInterval = setInterval(() => {
+      if (this.state.startTime) {
+        const elapsed = Date.now() - this.state.startTime;
+        this.el.duration.textContent = this.formatTime(elapsed);
+      }
+    }, 1000);
+    
+    if (this.state.startTime) {
+      this.el.duration.textContent = this.formatTime(Date.now() - this.state.startTime);
+    }
+  }
+  
+  stopTimer() {
+    if (this.state.timerInterval) {
+      clearInterval(this.state.timerInterval);
+      this.state.timerInterval = null;
+    }
+  }
+  
+  formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  }
+  
+  updateUI() {
+    const { isRecording, clickCount } = this.state;
+    
+    this.el.startBtn.disabled = isRecording;
+    this.el.stopBtn.disabled = !isRecording;
+    
+    if (isRecording) {
+      this.el.status.textContent = '🔴 Запись...';
+      this.el.status.classList.add('recording');
+      this.el.startBtn.textContent = 'Идёт запись';
+      this.el.stopBtn.textContent = 'Остановить';
+    } else {
+      this.el.status.classList.remove('recording');
+      this.el.startBtn.textContent = 'Начать запись';
+      this.el.stopBtn.textContent = 'Стоп';
     }
     
-    openGuidesPage() {
-        // Open the web editor in a new tab
-        chrome.tabs.create({ url: 'http://localhost:8000/guides' });
-    }
-    
-    openEditor() {
-        // Open the editor for the last session
-        chrome.tabs.create({ url: 'http://localhost:8000/editor' });
-    }
+    this.el.clickCount.textContent = clickCount;
+    // Имя можно менять всегда!
+    // this.el.sessionName.disabled = isRecording;
+  }
+  
+  openDashboard() {
+    chrome.tabs.create({ url: 'http://localhost:3000' });
+  }
 }
 
-// Initialize popup
+// Init
 document.addEventListener('DOMContentLoaded', () => {
-    new AutoDocPopup();
+  window.popup = new Popup();
 });
 
-// Listen for updates from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'CLICK_UPDATE') {
-        const popup = AutoDocPopup.instance;
-        if (popup) {
-            popup.recordingState.clickCount = message.count;
-            popup.elements.clickCount.textContent = message.count;
-        }
-    }
-    return false;
+// Listen for click updates
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'CLICK_UPDATE' && window.popup) {
+    window.popup.state.clickCount = message.count;
+    window.popup.el.clickCount.textContent = message.count;
+  }
 });

@@ -221,8 +221,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
-    # Связи
-    guides: Mapped[List["Guide"]] = relationship("Guide", back_populates=None)
+    # Связи убраны для MVP - нет user_id в Guide
     
     __table_args__ = (
         Index("idx_users_role", "role"),

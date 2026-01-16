@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Icons</title>
+</head>
+<body>
+    <h1>Генерация иконок для расширения</h1>
+    <p>Откройте консоль браузера (F12) и скопируйте data URLs</p>
+    
+    <canvas id="canvas16" width="16" height="16"></canvas>
+    <canvas id="canvas48" width="48" height="48"></canvas>
+    <canvas id="canvas128" width="128" height="128"></canvas>
+    
+    <script>
+        function createIcon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Фон
+            ctx.fillStyle = '#4F46E5'; // Indigo
+            ctx.fillRect(0, 0, size, size);
+            
+            // Белая буква "A"
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `bold ${size * 0.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('A', size / 2, size / 2);
+            
+            // Конвертируем в PNG и выводим data URL
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `icon${size}.png`;
+                a.click();
+            });
+        }
+        
+        // Создаём все иконки
+        createIcon('canvas16', 16);
+        createIcon('canvas48', 48);
+        createIcon('canvas128', 128);
+        
+        console.log('Иконки созданы и скачаны!');
+    </script>
+</body>
+</html>

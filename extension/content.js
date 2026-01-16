@@ -1,155 +1,248 @@
-// extension/content.js - Captures click events and logs them for the MVP workflow
-// This script runs in the context of the captured tab
+/**
+ * AutoDoc AI Recorder - Content Script
+ * Логирует клики и действия пользователя на странице
+ * 
+ * Этот скрипт внедряется в каждую страницу и отправляет
+ * данные о кликах в background script
+ */
 
-// State management
-let isRecording = false;
-let clickLog = [];
-let lastClickTime = 0;
-
-// Click event listener
-document.addEventListener('click', (event) => {
+(function() {
+  'use strict';
+  
+  // Состояние
+  let isRecording = false;
+  let clickCount = 0;
+  
+  console.log('[AutoDoc Content] Script loaded on:', window.location.href);
+  
+  // ============================================
+  // EVENT LISTENERS
+  // ============================================
+  
+  // Клики
+  document.addEventListener('click', handleClick, true);
+  document.addEventListener('mousedown', handleMouseDown, true);
+  
+  // Клавиатура (опционально)
+  document.addEventListener('keydown', handleKeyDown, true);
+  
+  // Ввод текста
+  document.addEventListener('input', handleInput, true);
+  
+  // ============================================
+  // HANDLERS
+  // ============================================
+  
+  function handleClick(event) {
     if (!isRecording) return;
+    
+    const target = event.target;
     
     const clickData = {
-        timestamp: Date.now(),
-        x: event.clientX,
-        y: event.clientY,
-        tagName: event.target.tagName,
-        className: event.target.className || '',
-        id: event.target.id || '',
-        text: (event.target.textContent || '').substring(0, 100),
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight
+      timestamp: Date.now(),
+      x: event.clientX,
+      y: event.clientY,
+      pageX: event.pageX,
+      pageY: event.pageY,
+      tagName: target.tagName,
+      className: target.className || '',
+      id: target.id || '',
+      text: getElementText(target),
+      href: target.href || null,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      url: window.location.href
     };
     
-    clickLog.push(clickData);
-    lastClickTime = clickData.timestamp;
+    clickCount++;
     
-    // Visual feedback - brief highlight
-    highlightClick(event.clientX, event.clientY);
+    // Визуальная обратная связь
+    showClickFeedback(event.clientX, event.clientY);
     
-    // Send to background script
+    // Отправляем в background
     chrome.runtime.sendMessage({
-        type: 'CLICK_LOG',
-        data: clickData
+      type: 'CLICK_LOG',
+      data: clickData
+    }).catch(err => {
+      console.log('[AutoDoc Content] Could not send click:', err);
     });
-});
-
-// Keyboard event listener (optional - for tracking interactions)
-document.addEventListener('keydown', (event) => {
+    
+    console.log(`[AutoDoc Content] Click #${clickCount}:`, clickData.x, clickData.y, clickData.tagName);
+  }
+  
+  function handleMouseDown(event) {
+    // Можно использовать для более точного определения момента клика
+  }
+  
+  function handleKeyDown(event) {
     if (!isRecording) return;
     
-    const keyData = {
-        timestamp: Date.now(),
-        key: event.key,
-        code: event.code,
-        tagName: event.target.tagName,
-        keyType: 'keyboard'
-    };
+    // Логируем только важные клавиши
+    const importantKeys = ['Enter', 'Tab', 'Escape', 'Backspace', 'Delete'];
     
-    chrome.runtime.sendMessage({
+    if (importantKeys.includes(event.key) || event.ctrlKey || event.metaKey) {
+      chrome.runtime.sendMessage({
         type: 'KEY_LOG',
-        data: keyData
-    });
-});
-
-// Input field tracking
-document.addEventListener('input', (event) => {
+        data: {
+          timestamp: Date.now(),
+          key: event.key,
+          code: event.code,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          metaKey: event.metaKey
+        }
+      }).catch(() => {});
+    }
+  }
+  
+  function handleInput(event) {
     if (!isRecording) return;
     
-    const inputData = {
-        timestamp: Date.now(),
-        tagName: event.target.tagName,
-        type: event.target.type || 'text',
-        valueLength: event.target.value ? event.target.value.length : 0,
-        keyType: 'input'
-    };
+    const target = event.target;
     
+    // Не логируем содержимое полей (приватность)
     chrome.runtime.sendMessage({
-        type: 'INPUT_LOG',
-        data: inputData
-    });
-});
-
-// Visual feedback for clicks
-function highlightClick(x, y) {
-    const circle = document.createElement('div');
-    circle.style.cssText = `
-        position: fixed;
-        left: ${x - 15}px;
-        top: ${y - 15}px;
-        width: 30px;
-        height: 30px;
-        border: 3px solid #FFD700;
-        border-radius: 50%;
-        pointer-events: none;
-        z-index: 999999;
-        animation: clickPulse 0.5s ease-out forwards;
+      type: 'INPUT_LOG',
+      data: {
+        timestamp: Date.now(),
+        tagName: target.tagName,
+        type: target.type || 'text',
+        hasValue: !!target.value
+      }
+    }).catch(() => {});
+  }
+  
+  // ============================================
+  // UTILITIES
+  // ============================================
+  
+  function getElementText(element) {
+    // Получаем текст элемента (ограничиваем длину)
+    let text = '';
+    
+    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+      text = element.placeholder || element.name || '';
+    } else if (element.tagName === 'IMG') {
+      text = element.alt || element.title || '';
+    } else {
+      text = element.textContent || element.innerText || '';
+    }
+    
+    // Очищаем и обрезаем
+    text = text.trim().replace(/\s+/g, ' ');
+    return text.substring(0, 100);
+  }
+  
+  function showClickFeedback(x, y) {
+    // Создаём визуальный маркер клика
+    const marker = document.createElement('div');
+    marker.className = 'autodoc-click-marker';
+    marker.style.cssText = `
+      position: fixed;
+      left: ${x - 20}px;
+      top: ${y - 20}px;
+      width: 40px;
+      height: 40px;
+      border: 3px solid #FFD700;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 2147483647;
+      animation: autodoc-pulse 0.6s ease-out forwards;
+      box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
     `;
     
-    // Add animation if not exists
-    if (!document.getElementById('clickAnimationStyle')) {
-        const style = document.createElement('style');
-        style.id = 'clickAnimationStyle';
-        style.textContent = `
-            @keyframes clickPulse {
-                0% { transform: scale(0.5); opacity: 1; }
-                100% { transform: scale(2); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
+    // Добавляем стили анимации если ещё нет
+    ensureStyles();
+    
+    document.body.appendChild(marker);
+    
+    // Удаляем через 600ms
+    setTimeout(() => {
+      marker.remove();
+    }, 600);
+  }
+  
+  function ensureStyles() {
+    if (document.getElementById('autodoc-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'autodoc-styles';
+    style.textContent = `
+      @keyframes autodoc-pulse {
+        0% {
+          transform: scale(0.5);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1.5);
+          opacity: 0;
+        }
+      }
+      
+      .autodoc-click-marker {
+        transition: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  // ============================================
+  // MESSAGE HANDLING
+  // ============================================
+  
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('[AutoDoc Content] Message:', message.type);
+    
+    switch (message.type) {
+      case 'START_RECORDING':
+        isRecording = true;
+        clickCount = 0;
+        console.log('[AutoDoc Content] Recording STARTED');
+        sendResponse({ success: true });
+        break;
+        
+      case 'STOP_RECORDING':
+        isRecording = false;
+        console.log('[AutoDoc Content] Recording STOPPED, clicks:', clickCount);
+        sendResponse({ 
+          success: true, 
+          clickCount: clickCount 
+        });
+        break;
+        
+      case 'GET_STATUS':
+        sendResponse({ 
+          isRecording: isRecording,
+          clickCount: clickCount,
+          url: window.location.href
+        });
+        break;
+        
+      default:
+        sendResponse({ error: 'Unknown message type' });
     }
     
-    document.body.appendChild(circle);
-    setTimeout(() => circle.remove(), 500);
-}
-
-// Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    switch (message.type) {
-        case 'START_RECORDING':
-            isRecording = true;
-            clickLog = [];
-            lastClickTime = Date.now();
-            console.log('[AutoDoc] Recording started');
-            sendResponse({ success: true });
-            break;
-            
-        case 'STOP_RECORDING':
-            isRecording = false;
-            console.log('[AutoDoc] Recording stopped, clicks:', clickLog.length);
-            sendResponse({ 
-                success: true, 
-                clickCount: clickLog.length,
-                duration: lastClickTime - (clickLog[0]?.timestamp || Date.now())
-            });
-            break;
-            
-        case 'GET_CLICK_LOG':
-            sendResponse({ 
-                success: true, 
-                clicks: clickLog,
-                lastClickTime: lastClickTime
-            });
-            break;
-            
-        case 'CLEAR_LOG':
-            clickLog = [];
-            sendResponse({ success: true });
-            break;
+    return true; // Async response
+  });
+  
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+  
+  // Сообщаем background что страница загружена
+  chrome.runtime.sendMessage({
+    type: 'PAGE_INFO',
+    data: {
+      url: window.location.href,
+      title: document.title,
+      width: window.innerWidth,
+      height: window.innerHeight
     }
-    return true;
-});
-
-// Report page info on load
-window.addEventListener('load', () => {
-    chrome.runtime.sendMessage({
-        type: 'PAGE_INFO',
-        data: {
-            url: window.location.href,
-            title: document.title,
-            width: window.innerWidth,
-            height: window.innerHeight
-        }
-    });
-});
+  }).catch(() => {
+    // Background может быть не готов
+  });
+  
+})();

@@ -4,45 +4,48 @@ POST /sessions/upload - загрузить видео, аудио, лог кли
 GET /sessions/{id} - получить статус и результаты
 """
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, desc
 
 from app.database import get_db
 from app.models import RecordingSession, SessionStatus, Guide, GuideStep, GuideStatus
-from app.services.storage import storage_service
-from app.services.ai_service import WhisperASR, LLMWrapper
-from app.services.step_detector import StepDetector, parse_clicks_from_log, parse_asr_segments
-from app.services.screenshot_service import ScreenshotExtractor
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/sessions", tags=["Sessions"])
+router = APIRouter(tags=["Sessions"])
 
 
 @router.post("/upload")
 async def upload_session(
-    video: UploadFile = File(...),
-    audio: UploadFile = File(...),
-    clicks_log: UploadFile = File(...),
+    video: Optional[UploadFile] = File(None),
+    audio: Optional[UploadFile] = File(None),
+    clicks_log: Optional[UploadFile] = File(None),
+    screenshots: List[UploadFile] = File(default=[]),
     title: Optional[str] = Form(None),
+    duration_seconds: Optional[float] = Form(None),
+    click_count: Optional[int] = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Загрузить сессию записи.
     
-    Принимает:
+    Принимает (все опционально):
     - video: видеофайл записи экрана
     - audio: аудиофайл с микрофона
     - clicks_log: JSON лог кликов
-    - title: название (опционально)
+    - screenshots: массив скриншотов (PNG)
+    - title: название
+    - duration_seconds: длительность записи
+    - click_count: количество кликов
     
     Returns:
     - session_id: ID сессии для отслеживания
@@ -51,32 +54,85 @@ async def upload_session(
     session_uuid = str(uuid4())
     
     try:
-        # 1. Сохраняем файлы в MinIO
-        logger.info(f"Uploading files for session {session_uuid}")
+        logger.info(f"Creating session {session_uuid}, screenshots: {len(screenshots)}")
         
-        video_path = await storage_service.upload_file(
-            video, 
-            f"sessions/{session_uuid}/video.webm"
-        )
+        # Парсим лог кликов если есть
+        clicks_data = []
+        if clicks_log:
+            try:
+                content = await clicks_log.read()
+                clicks_json = json.loads(content.decode('utf-8'))
+                clicks_data = clicks_json.get('clicks', [])
+                
+                # Если duration не передан, берём из лога
+                if not duration_seconds and 'duration_seconds' in clicks_json:
+                    duration_seconds = clicks_json['duration_seconds']
+                    
+                # Если click_count не передан, считаем
+                if not click_count:
+                    click_count = len(clicks_data)
+                    
+                logger.info(f"Parsed {len(clicks_data)} clicks from log")
+            except Exception as e:
+                logger.warning(f"Could not parse clicks log: {e}")
         
-        audio_path = await storage_service.upload_file(
-            audio,
-            f"sessions/{session_uuid}/audio.wav"
-        )
+        # Сохраняем файлы если есть
+        video_path = None
+        audio_path = None
+        clicks_path = None
+        screenshot_paths = []
         
-        clicks_path = await storage_service.upload_file(
-            clicks_log,
-            f"sessions/{session_uuid}/clicks.json"
-        )
+        try:
+            from app.services.storage import storage_service, StorageBucket
+            
+            if video and video.filename:
+                result = storage_service.upload_file(
+                    video.file,
+                    video.filename,
+                    StorageBucket.UPLOADS,
+                    content_type=video.content_type or "video/webm",
+                    subfolder=session_uuid
+                )
+                video_path = result.get('object_key')
+                logger.info(f"Video uploaded: {video_path}")
+            
+            if audio and audio.filename:
+                result = storage_service.upload_file(
+                    audio.file,
+                    audio.filename,
+                    StorageBucket.UPLOADS,
+                    content_type=audio.content_type or "audio/wav",
+                    subfolder=session_uuid
+                )
+                audio_path = result.get('object_key')
+                logger.info(f"Audio uploaded: {audio_path}")
+            
+            # Сохраняем скриншоты
+            for i, screenshot in enumerate(screenshots):
+                if screenshot and screenshot.filename:
+                    result = storage_service.upload_file(
+                        screenshot.file,
+                        f"screenshot_{i}.png",
+                        StorageBucket.SCREENSHOTS,
+                        content_type="image/png",
+                        subfolder=session_uuid
+                    )
+                    screenshot_paths.append(result.get('object_key'))
+                    logger.info(f"Screenshot {i} uploaded: {result.get('object_key')}")
+                
+        except Exception as e:
+            logger.warning(f"Storage upload failed (continuing without files): {e}")
         
-        # 2. Создаём запись в БД
+        # Создаём запись в БД
         session = RecordingSession(
             uuid=session_uuid,
-            title=title or "Без названия",
+            title=title or "Новый гайд",
             status=SessionStatus.UPLOADED,
-            video_path=video_path,
-            audio_path=audio_path,
-            clicks_log_path=clicks_path,
+            video_path=video_path or "",
+            audio_path=audio_path or "",
+            clicks_log_path=clicks_path or "",
+            duration_seconds=duration_seconds,
+            click_count=click_count or len(clicks_data),
             created_at=datetime.utcnow()
         )
         
@@ -84,17 +140,57 @@ async def upload_session(
         await db.commit()
         await db.refresh(session)
         
-        logger.info(f"Session {session_uuid} created, starting async processing")
+        logger.info(f"Session {session_uuid} created with {session.click_count} clicks")
         
-        # 3. Запускаем асинхронную обработку
-        # Celery task или background task
-        await process_session_background(session.id, db)
+        # Создаём гайд сразу (без AI обработки для MVP)
+        guide = Guide(
+            uuid=str(uuid4()),
+            session_id=session.id,
+            title=session.title,
+            language="ru",
+            status=GuideStatus.DRAFT,
+            created_at=datetime.utcnow()
+        )
+        db.add(guide)
+        await db.commit()
+        await db.refresh(guide)
+        
+        # Создаём шаги из кликов
+        for i, click in enumerate(clicks_data):
+            # Получаем путь к скриншоту если есть
+            screenshot_path = screenshot_paths[i] if i < len(screenshot_paths) else ""
+            
+            step = GuideStep(
+                guide_id=guide.id,
+                step_number=i + 1,
+                click_timestamp=click.get('timestamp', 0),
+                click_x=click.get('x', 0),
+                click_y=click.get('y', 0),
+                screenshot_path=screenshot_path,
+                screenshot_width=click.get('viewport_width', 1920),
+                screenshot_height=click.get('viewport_height', 1080),
+                raw_speech=click.get('element_text') or click.get('text') or "",
+                normalized_text=f"Шаг {i+1}: Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
+                created_at=datetime.utcnow()
+            )
+            db.add(step)
+        
+        await db.commit()
+        
+        # Обновляем статус сессии
+        session.status = SessionStatus.COMPLETED
+        session.processing_completed_at = datetime.utcnow()
+        await db.commit()
+        
+        logger.info(f"Session {session_uuid} completed with guide {guide.uuid}")
         
         return {
             "success": True,
             "session_id": session_uuid,
-            "status": "uploaded",
-            "message": "Сессия загружена, обработка началась"
+            "guide_id": guide.uuid,
+            "status": "completed",
+            "click_count": session.click_count,
+            "message": "Сессия создана успешно"
         }
         
     except Exception as e:
@@ -102,159 +198,46 @@ async def upload_session(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-async def process_session_background(session_id: int, db: AsyncSession):
+@router.get("")
+async def list_sessions(
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Фоновая обработка сессии.
-    Запускается после загрузки.
+    Получить список всех сессий.
     """
-    # Получаем сессию
-    result = await db.execute(
-        select(RecordingSession).where(RecordingSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
+    from sqlalchemy.orm import selectinload
     
-    if not session:
-        return
+    query = select(RecordingSession).options(selectinload(RecordingSession.guide)).order_by(desc(RecordingSession.created_at))
     
-    # Обновляем статус
-    session.status = SessionStatus.PROCESSING
-    session.processing_started_at = datetime.utcnow()
-    await db.commit()
+    if status:
+        query = query.where(RecordingSession.status == status)
     
-    try:
-        # 1. Скачиваем лог кликов
-        clicks_content = await storage_service.download_file(session.clicks_log_path)
-        clicks_log = clicks_content if isinstance(clicks_content, dict) else {}
-        
-        clicks = parse_clicks_from_log(clicks_log)
-        session.click_count = len(clicks)
-        
-        # 2. Запускаем ASR (Whisper)
-        logger.info(f"Starting ASR for session {session.uuid}")
-        
-        asr = WhisperASR()
-        
-        # Скачиваем аудио локально для Whisper
-        local_audio = await storage_service.download_to_temp(session.audio_path)
-        
-        transcription = asr.transcribe(str(local_audio), language="ru")
-        
-        # Сохраняем результаты ASR
-        session.asr_text = transcription.text
-        session.asr_segments = [s.to_dict() for s in transcription.segments]
-        session.duration_seconds = transcription.duration
-        
-        # Чистим память
-        asr.close()
-        local_audio.unlink(missing_ok=True)
-        
-        # 3. Парсим сегменты речи
-        speech_segments = parse_asr_segments({"segments": session.asr_segments})
-        
-        # 4. Детектируем шаги
-        detector = StepDetector()
-        step_candidates = detector.detect_steps(clicks, speech_segments)
-        
-        # 5. Извлекаем скриншоты
-        local_video = await storage_service.download_to_temp(session.video_path)
-        extractor = ScreenshotExtractor()
-        
-        timestamps = [c.click_timestamp for c in step_candidates]
-        screenshots = extractor.extract_at_timestamps(
-            str(local_video), 
-            timestamps,
-            prefix=f"step_{session.uuid}"
-        )
-        
-        # 6. Нормализуем тексты через LLM
-        llm = LLMWrapper()
-        
-        guide = Guide(
-            uuid=str(uuid4()),
-            session_id=session.id,
-            title=session.title or "Без названия",
-            language="ru",
-            status=SessionStatus.DRAFT,
-            created_at=datetime.utcnow()
-        )
-        db.add(guide)
-        
-        # Создаём шаги
-        for i, candidate in enumerate(step_candidates):
-            # Находим соответствующий скриншот
-            screenshot = screenshots[i] if i < len(screenshots) else None
-            
-            if screenshot and screenshot.success:
-                # Загружаем скриншот в MinIO
-                screenshot_key = f"guides/{guide.uuid}/screenshots/step_{i+1}.png"
-                await storage_service.upload_file_path(
-                    screenshot.output_path,
-                    screenshot_key
-                )
-                
-                # Нормализуем текст через LLM
-                normalized = await llm.normalize_instruction(
-                    candidate.raw_speech_text,
-                    language="ru"
-                )
-                
-                step = GuideStep(
-                    guide_id=guide.id,
-                    step_number=i + 1,
-                    click_timestamp=candidate.click.click_timestamp,
-                    click_x=candidate.click.x,
-                    click_y=candidate.click.y,
-                    screenshot_path=screenshot_key,
-                    screenshot_width=screenshot.width,
-                    screenshot_height=screenshot.height,
-                    raw_speech=candidate.raw_speech_text,
-                    raw_speech_start=candidate.speech.start if candidate.speech else None,
-                    raw_speech_end=candidate.speech.end if candidate.speech else None,
-                    normalized_text=normalized,
-                    created_at=datetime.utcnow()
-                )
-                db.add(step)
-            else:
-                # Скриншот не удался, создаём шаг без скриншота
-                normalized = await llm.normalize_instruction(
-                    candidate.raw_speech_text,
-                    language="ru"
-                )
-                
-                step = GuideStep(
-                    guide_id=guide.id,
-                    step_number=i + 1,
-                    click_timestamp=candidate.click.click_timestamp,
-                    click_x=candidate.click.x,
-                    click_y=candidate.click.y,
-                    screenshot_path="",
-                    screenshot_width=0,
-                    screenshot_height=0,
-                    raw_speech=candidate.raw_speech_text,
-                    normalized_text=normalized,
-                    created_at=datetime.utcnow()
-                )
-                db.add(step)
-        
-        # 7. Обновляем сессию
-        session.status = SessionStatus.COMPLETED
-        session.processing_completed_at = datetime.utcnow()
-        
-        # Связываем гайд с сессией
-        session.guide = guide
-        
-        await db.commit()
-        
-        # Чистим временные файлы
-        local_video.unlink(missing_ok=True)
-        
-        logger.info(f"Session {session.uuid} processing completed")
-        
-    except Exception as e:
-        logger.exception(f"Session processing failed: {e}")
-        session.status = SessionStatus.FAILED
-        session.error_message = str(e)
-        await db.commit()
+    # Пагинация
+    offset = (page - 1) * page_size
+    query = query.offset(offset).limit(page_size)
+    
+    result = await db.execute(query)
+    sessions = result.scalars().all()
+    
+    return {
+        "items": [
+            {
+                "uuid": s.uuid,
+                "title": s.title,
+                "status": s.status.value if hasattr(s.status, 'value') else s.status,
+                "duration_seconds": s.duration_seconds,
+                "click_count": s.click_count,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "guide_id": s.guide.uuid if s.guide else None
+            }
+            for s in sessions
+        ],
+        "page": page,
+        "page_size": page_size
+    }
 
 
 @router.get("/{session_id}")
@@ -262,8 +245,12 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     """
     Получить информацию о сессии.
     """
+    from sqlalchemy.orm import selectinload
+    
     result = await db.execute(
-        select(RecordingSession).where(RecordingSession.uuid == session_id)
+        select(RecordingSession)
+        .options(selectinload(RecordingSession.guide))
+        .where(RecordingSession.uuid == session_id)
     )
     session = result.scalar_one_or_none()
     
@@ -273,12 +260,12 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
     return {
         "uuid": session.uuid,
         "title": session.title,
-        "status": session.status,
+        "status": session.status.value if hasattr(session.status, 'value') else session.status,
         "duration_seconds": session.duration_seconds,
         "click_count": session.click_count,
-        "created_at": session.created_at,
-        "processing_started_at": session.processing_started_at,
-        "processing_completed_at": session.processing_completed_at,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "processing_started_at": session.processing_started_at.isoformat() if session.processing_started_at else None,
+        "processing_completed_at": session.processing_completed_at.isoformat() if session.processing_completed_at else None,
         "error_message": session.error_message,
         "guide_id": session.guide.uuid if session.guide else None
     }
@@ -320,13 +307,18 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # Удаляем файлы из MinIO
-    if session.video_path:
-        await storage_service.delete_file(session.video_path)
-    if session.audio_path:
-        await storage_service.delete_file(session.audio_path)
-    if session.clicks_log_path:
-        await storage_service.delete_file(session.clicks_log_path)
+    # Удаляем файлы из MinIO если есть
+    try:
+        from app.services.storage import storage_service, StorageBucket
+        
+        if session.video_path:
+            storage_service.delete_file(session.video_path, StorageBucket.UPLOADS)
+        if session.audio_path:
+            storage_service.delete_file(session.audio_path, StorageBucket.UPLOADS)
+        if session.clicks_log_path:
+            storage_service.delete_file(session.clicks_log_path, StorageBucket.UPLOADS)
+    except Exception as e:
+        logger.warning(f"Could not delete files: {e}")
     
     # Удаляем из БД (cascade удалит связанный гайд и шаги)
     await db.delete(session)

@@ -238,6 +238,74 @@ async def get_file_info(
         )
 
 
+@router.get("/file")
+async def get_file(
+    path: str = Query(..., description="Путь к файлу (object_key)"),
+):
+    """
+    Получение файла из хранилища.
+    Определяет бакет автоматически по пути.
+    """
+    from fastapi.responses import StreamingResponse
+    import io
+    
+    # Определяем бакет по пути
+    bucket = StorageBucket.SCREENSHOTS  # По умолчанию скриншоты
+    
+    if path.startswith("autodoc-uploads/") or "/uploads/" in path:
+        bucket = StorageBucket.UPLOADS
+        path = path.replace("autodoc-uploads/", "").replace("/uploads/", "")
+    elif path.startswith("autodoc-screenshots/") or "/screenshots/" in path:
+        bucket = StorageBucket.SCREENSHOTS
+        path = path.replace("autodoc-screenshots/", "").replace("/screenshots/", "")
+    elif path.startswith("autodoc-videos/") or "/videos/" in path:
+        bucket = StorageBucket.VIDEOS
+        path = path.replace("autodoc-videos/", "").replace("/videos/", "")
+    elif path.startswith("autodoc-audio/") or "/audio/" in path:
+        bucket = StorageBucket.AUDIO
+        path = path.replace("autodoc-audio/", "").replace("/audio/", "")
+    
+    try:
+        # Получаем файл из MinIO
+        file_data = storage_service.get_file(path, bucket)
+        
+        if file_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found",
+            )
+        
+        # Определяем content-type
+        content_type = "application/octet-stream"
+        if path.endswith(".png"):
+            content_type = "image/png"
+        elif path.endswith(".jpg") or path.endswith(".jpeg"):
+            content_type = "image/jpeg"
+        elif path.endswith(".webm"):
+            content_type = "video/webm"
+        elif path.endswith(".mp4"):
+            content_type = "video/mp4"
+        elif path.endswith(".wav"):
+            content_type = "audio/wav"
+        elif path.endswith(".mp3"):
+            content_type = "audio/mpeg"
+        
+        return StreamingResponse(
+            io.BytesIO(file_data),
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get file {path}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File not found: {path}",
+        )
+
+
 @router.post("/copy")
 async def copy_file(
     source_key: str,

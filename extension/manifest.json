@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "AutoDoc AI Recorder",
+  "name": "НИР-Документ",
   "version": "1.0.0",
-  "description": "Запись экрана, микрофона и кликов для AutoDoc AI System",
+  "description": "Запись экрана и создание гайдов",
   "permissions": [
     "storage",
     "tabCapture",
     "desktopCapture",
     "scripting",
-    "activeTab"
+    "activeTab",
+    "notifications",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -207,18 +207,19 @@ class GuideUpdate(BaseModel):
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
+    status: Optional[GuideStatusEnum] = None
 
 
 class GuideListResponse(BaseModel):
     """Схема списка гайдов (сокращенная)."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     uuid: str
     title: str
     description: Optional[str] = None
     status: GuideStatusEnum
-    content_type: ContentTypeEnum
     language: str = "ru"
-    tags: List[str] = []
     duration_seconds: Optional[float] = None
     created_at: datetime
     updated_at: datetime
@@ -231,48 +232,50 @@ class GuideDetailResponse(BaseModel):
     id: int
     uuid: str
     title: str
-    description: Optional[str] = None
-    status: GuideStatusEnum
-    content_type: ContentTypeEnum
+    status: str  # Используем str вместо enum для совместимости
     language: str = "ru"
-    tags: List[str] = []
     
-    # AI-модели
-    asr_model: str
-    llm_model: str
-    tts_voice: str
-    
-    # Результаты AI
-    generated_summary: Optional[str] = None
-    ai_metadata: Optional[Dict[str, Any]] = None
+    # TTS настройки
+    tts_voice: str = "ru-RU-SvetlanaNeural"
     
     # Файлы
-    original_video_path: Optional[str] = None
-    processed_video_path: Optional[str] = None
-    wiki_markdown_path: Optional[str] = None
     shorts_video_path: Optional[str] = None
-    
-    # Метрики
-    duration_seconds: Optional[float] = None
-    file_size_bytes: Optional[int] = None
+    shorts_duration_seconds: Optional[float] = None
     
     # Временные метки
     created_at: datetime
     updated_at: datetime
-    processing_started_at: Optional[datetime] = None
-    processing_completed_at: Optional[datetime] = None
+    shorts_generated_at: Optional[datetime] = None
     
     # Ошибки
     error_message: Optional[str] = None
     
-    # Публичность
-    is_public: bool = False
-    share_token: Optional[str] = None
-    view_count: int = 0
-    
     # Связанные данные
-    steps: List[GuideStepResponse] = []
-    screenshots: List[ScreenshotResponse] = []
+    steps: List["GuideStepResponseSimple"] = []
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GuideStepResponseSimple(BaseModel):
+    """Упрощённая схема шага для MVP."""
+    id: int
+    guide_id: int
+    step_number: int
+    click_timestamp: float
+    click_x: int
+    click_y: int
+    screenshot_path: str
+    screenshot_width: int
+    screenshot_height: int
+    raw_speech: Optional[str] = None
+    normalized_text: str
+    edited_text: Optional[str] = None
+    tts_audio_path: Optional[str] = None
+    tts_duration_seconds: Optional[float] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 class GuideProcessingStatus(BaseModel):
