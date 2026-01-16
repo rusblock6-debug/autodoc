@@ -1,6 +1,11 @@
 /**
  * НИР-Документ - Background Service Worker
- * Управляет записью и передаёт данные на бэкенд
+ * Записывает клики и скриншоты на ВСЕХ вкладках
+ * 
+ * Лучшие практики от Loom/Scribe/Tango:
+ * - Запись продолжается при переключении вкладок
+ * - Скриншот делается для активной вкладки
+ * - Content script инжектится во все вкладки
  */
 
 // Состояние записи
@@ -9,8 +14,7 @@ let recordingState = {
   startTime: null,
   sessionName: '',
   clickLog: [],
-  screenshots: [],  // Массив скриншотов (base64)
-  tabId: null
+  screenshots: []
 };
 
 // Настройки
@@ -27,11 +31,11 @@ console.log('[НИР-Документ] Background script loaded');
 // ============================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[НИР-Документ] Message received:', message.type);
+  console.log('[НИР-Документ] Message:', message.type);
   
   switch (message.type) {
     case 'START_RECORDING':
-      handleStartRecording(message, sender, sendResponse);
+      handleStartRecording(message, sendResponse);
       return true;
       
     case 'STOP_RECORDING':
@@ -54,14 +58,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       return false;
       
-    case 'KEY_LOG':
-    case 'INPUT_LOG':
-    case 'PAGE_INFO':
-      sendResponse({ success: true });
-      return false;
-      
     default:
-      sendResponse({ error: 'Unknown message type' });
+      sendResponse({ success: true });
       return false;
   }
 });
@@ -70,50 +68,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // RECORDING FUNCTIONS
 // ============================================
 
-async function handleStartRecording(message, sender, sendResponse) {
+async function handleStartRecording(message, sendResponse) {
   if (recordingState.isRecording) {
     sendResponse({ error: 'Already recording' });
     return;
   }
   
   try {
-    recordingState.sessionName = message.sessionName || 'Новый гайд';
-    recordingState.clickLog = [];
-    recordingState.screenshots = [];
-    recordingState.startTime = Date.now();
-    recordingState.tabId = null;
+    // Сброс состояния
+    recordingState = {
+      isRecording: true,
+      startTime: Date.now(),
+      sessionName: message.sessionName || 'Новый гайд',
+      clickLog: [],
+      screenshots: []
+    };
     
-    // Получаем активную вкладку
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tab = tabs[0];
+    // Инжектим content script во ВСЕ открытые вкладки
+    await injectContentScriptToAllTabs();
     
-    if (tab && tab.id) {
-      recordingState.tabId = tab.id;
-      
-      // Отправляем сообщение content script о начале записи
-      try {
-        await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
-        console.log('[НИР-Документ] Content script notified');
-      } catch (e) {
-        console.log('[НИР-Документ] Content script not ready, injecting...');
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content.js']
-          });
-          // Даём время на загрузку
-          await new Promise(r => setTimeout(r, 100));
-          await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
-        } catch (injectError) {
-          console.log('[НИР-Документ] Could not inject content script:', injectError);
-        }
-      }
-    }
-    
-    recordingState.isRecording = true;
-    
-    // Показываем уведомление
-    showNotification('recording-started', 'НИР-Документ', 'Запись началась! Кликайте по элементам.');
+    showNotification('recording-started', 'НИР-Документ', 'Запись началась! Кликайте по элементам на любой вкладке.');
     
     sendResponse({ 
       success: true, 
@@ -121,7 +95,7 @@ async function handleStartRecording(message, sender, sendResponse) {
     });
     
   } catch (error) {
-    console.error('[НИР-Документ] Start recording error:', error);
+    console.error('[НИР-Документ] Start error:', error);
     sendResponse({ error: error.message });
   }
 }
@@ -133,19 +107,13 @@ async function handleStopRecording(message, sendResponse) {
   }
   
   try {
-    // Обновляем имя если передано новое
-    if (message && message.sessionName) {
+    // Обновляем имя если передано
+    if (message?.sessionName) {
       recordingState.sessionName = message.sessionName;
     }
     
-    // Останавливаем запись в content script
-    if (recordingState.tabId) {
-      try {
-        await chrome.tabs.sendMessage(recordingState.tabId, { type: 'STOP_RECORDING' });
-      } catch (e) {
-        console.log('[НИР-Документ] Could not stop content script:', e);
-      }
-    }
+    // Останавливаем запись во всех вкладках
+    await stopRecordingInAllTabs();
     
     // Собираем данные
     const sessionData = {
@@ -157,61 +125,54 @@ async function handleStopRecording(message, sendResponse) {
       click_count: recordingState.clickLog.length
     };
     
-    console.log('[НИР-Документ] Session data:', sessionData);
+    console.log('[НИР-Документ] Session:', sessionData.click_count, 'clicks');
     
     // Отправляем на бэкенд
     const result = await uploadSession(sessionData);
     
-    // Сбрасываем состояние
+    // Сохраняем количество кликов для уведомления
     const clickCount = recordingState.clickLog.length;
-    recordingState.isRecording = false;
-    recordingState.startTime = null;
-    recordingState.clickLog = [];
-    recordingState.screenshots = [];
     
+    // Сбрасываем состояние
+    recordingState = {
+      isRecording: false,
+      startTime: null,
+      sessionName: '',
+      clickLog: [],
+      screenshots: []
+    };
+    
+    // Открываем результат
     if (result.success && result.guide_id) {
-      // Если гайд уже создан, открываем сразу редактор
-      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
-      const url = `${CONFIG.FRONTEND_URL}/guide/${result.guide_id}/edit`;
-      console.log('[НИР-Документ] Opening guide editor:', url);
-      chrome.tabs.create({ url });
-    } else if (result.success && result.session_id) {
-      // Иначе открываем страницу статуса сессии
-      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
-      const url = `${CONFIG.FRONTEND_URL}/session/${result.session_id}`;
-      console.log('[НИР-Документ] Opening session status:', url);
-      chrome.tabs.create({ url });
-    } else if (result.success) {
-      // Успех но нет session_id - открываем Dashboard
-      showNotification('recording-stopped', 'НИР-Документ', `Сохранено! Кликов: ${clickCount}`);
-      chrome.tabs.create({ url: CONFIG.FRONTEND_URL });
+      showNotification('done', 'НИР-Документ', `Готово! ${clickCount} шагов`);
+      chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/guide/${result.guide_id}/edit` });
     } else {
-      showNotification('upload-error', 'НИР-Документ - Ошибка', result.error || 'Не удалось сохранить');
-      // Всё равно открываем Dashboard
+      showNotification('done', 'НИР-Документ', result.error || 'Сохранено');
       chrome.tabs.create({ url: CONFIG.FRONTEND_URL });
     }
     
-    sendResponse({ 
-      success: true, 
-      sessionData,
-      uploadResult: result
-    });
+    sendResponse({ success: true, uploadResult: result });
     
   } catch (error) {
-    console.error('[НИР-Документ] Stop recording error:', error);
+    console.error('[НИР-Документ] Stop error:', error);
     recordingState.isRecording = false;
     sendResponse({ error: error.message });
   }
 }
 
-function handleClickLog(data, sender) {
+// ============================================
+// CLICK HANDLING
+// ============================================
+
+async function handleClickLog(data, sender) {
   if (!recordingState.isRecording) return;
   
-  const timestamp = (Date.now() - recordingState.startTime) / 1000;
   const clickIndex = recordingState.clickLog.length;
+  const timestamp = (Date.now() - recordingState.startTime) / 1000;
   
+  // Сохраняем клик
   const clickEntry = {
-    timestamp: timestamp,
+    timestamp,
     x: data.x,
     y: data.y,
     element: data.tagName || 'unknown',
@@ -220,16 +181,25 @@ function handleClickLog(data, sender) {
     element_text: data.text || null,
     viewport_width: data.viewportWidth,
     viewport_height: data.viewportHeight,
-    page_url: sender.tab?.url || null,
-    screenshot_index: clickIndex  // Индекс скриншота
+    page_url: data.url || sender.tab?.url || null,
+    screenshot_index: clickIndex
   };
   
   recordingState.clickLog.push(clickEntry);
+  console.log(`[НИР-Документ] Click #${clickIndex + 1}: ${data.tagName} at ${data.x},${data.y}`);
   
-  console.log(`[НИР-Документ] Click #${recordingState.clickLog.length}: ${clickEntry.x}, ${clickEntry.y}`);
-  
-  // Делаем скриншот
-  captureScreenshot(clickIndex, sender.tab?.windowId);
+  // Делаем скриншот активной вкладки
+  try {
+    const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab?.windowId, {
+      format: 'png',
+      quality: 90
+    });
+    recordingState.screenshots[clickIndex] = dataUrl;
+    console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} OK`);
+  } catch (e) {
+    console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} failed:`, e.message);
+    recordingState.screenshots[clickIndex] = null;
+  }
   
   // Обновляем popup
   chrome.runtime.sendMessage({
@@ -238,50 +208,93 @@ function handleClickLog(data, sender) {
   }).catch(() => {});
 }
 
-// Захват скриншота
-async function captureScreenshot(clickIndex, windowId) {
+// ============================================
+// CONTENT SCRIPT INJECTION
+// ============================================
+
+async function injectContentScriptToAllTabs() {
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
-      format: 'png',
-      quality: 90
-    });
+    const tabs = await chrome.tabs.query({});
     
-    recordingState.screenshots[clickIndex] = dataUrl;
-    console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} captured (${Math.round(dataUrl.length / 1024)}KB)`);
-    
-  } catch (error) {
-    console.error(`[НИР-Документ] Screenshot #${clickIndex + 1} failed:`, error);
-    recordingState.screenshots[clickIndex] = null;
+    for (const tab of tabs) {
+      // Пропускаем системные страницы
+      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+        continue;
+      }
+      
+      try {
+        // Проверяем, есть ли уже content script
+        await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
+        console.log(`[НИР-Документ] Tab ${tab.id} already has content script`);
+      } catch {
+        // Инжектим content script
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content.js']
+          });
+          await new Promise(r => setTimeout(r, 50));
+          await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
+          console.log(`[НИР-Документ] Injected into tab ${tab.id}`);
+        } catch (e) {
+          console.log(`[НИР-Документ] Cannot inject into tab ${tab.id}:`, e.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[НИР-Документ] Injection error:', e);
   }
 }
 
+async function stopRecordingInAllTabs() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'STOP_RECORDING' });
+      } catch {}
+    }
+  } catch {}
+}
+
+// Инжектим в новые вкладки во время записи
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!recordingState.isRecording) return;
+  if (changeInfo.status !== 'complete') return;
+  if (!tab.url || tab.url.startsWith('chrome://')) return;
+  
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+    await new Promise(r => setTimeout(r, 50));
+    await chrome.tabs.sendMessage(tabId, { type: 'START_RECORDING' });
+    console.log(`[НИР-Документ] Injected into new tab ${tabId}`);
+  } catch {}
+});
+
 // ============================================
-// API FUNCTIONS
+// UPLOAD
 // ============================================
 
 async function uploadSession(sessionData) {
   try {
-    // Добавляем скриншоты к кликам
-    const clicksWithScreenshots = sessionData.clicks.map((click, index) => ({
-      ...click,
-      has_screenshot: !!recordingState.screenshots[index]
-    }));
-    
     const clicksJson = JSON.stringify({
       version: '1.0',
       session_name: sessionData.session_name,
       start_time: sessionData.start_time,
       end_time: sessionData.end_time,
       duration_seconds: sessionData.duration_seconds,
-      clicks: clicksWithScreenshots
+      clicks: sessionData.clicks.map((c, i) => ({
+        ...c,
+        has_screenshot: !!recordingState.screenshots[i]
+      }))
     }, null, 2);
     
-    console.log('[НИР-Документ] Clicks JSON:', clicksJson);
-    
     const formData = new FormData();
-    const clicksBlob = new Blob([clicksJson], { type: 'application/json' });
-    formData.append('clicks_log', clicksBlob, 'clicks.json');
-    formData.append('title', sessionData.session_name || 'Новый гайд');
+    formData.append('clicks_log', new Blob([clicksJson], { type: 'application/json' }), 'clicks.json');
+    formData.append('title', sessionData.session_name);
     formData.append('duration_seconds', String(sessionData.duration_seconds || 0));
     formData.append('click_count', String(sessionData.click_count || 0));
     
@@ -289,52 +302,27 @@ async function uploadSession(sessionData) {
     for (let i = 0; i < recordingState.screenshots.length; i++) {
       const screenshot = recordingState.screenshots[i];
       if (screenshot) {
-        // Конвертируем data URL в Blob
         const response = await fetch(screenshot);
         const blob = await response.blob();
         formData.append('screenshots', blob, `screenshot_${i}.png`);
-        console.log(`[НИР-Документ] Added screenshot_${i}.png (${Math.round(blob.size / 1024)}KB)`);
       }
     }
     
-    const url = CONFIG.API_BASE + CONFIG.UPLOAD_ENDPOINT;
-    console.log('[НИР-Документ] Uploading to:', url);
-    
-    const response = await fetch(url, {
+    const response = await fetch(CONFIG.API_BASE + CONFIG.UPLOAD_ENDPOINT, {
       method: 'POST',
       body: formData
     });
     
-    console.log('[НИР-Документ] Response status:', response.status);
-    
-    const responseText = await response.text();
-    console.log('[НИР-Документ] Response body:', responseText);
-    
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${responseText}`);
+      throw new Error(`HTTP ${response.status}`);
     }
     
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (e) {
-      throw new Error('Invalid JSON response: ' + responseText);
-    }
-    
-    console.log('[НИР-Документ] Upload success:', result);
-    
-    return {
-      success: true,
-      session_id: result.session_id,
-      guide_id: result.guide_id
-    };
+    const result = await response.json();
+    return { success: true, session_id: result.session_id, guide_id: result.guide_id };
     
   } catch (error) {
     console.error('[НИР-Документ] Upload error:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    return { success: false, error: error.message };
   }
 }
 
@@ -344,36 +332,15 @@ async function uploadSession(sessionData) {
 
 function showNotification(id, title, message) {
   try {
-    if (chrome.notifications && chrome.notifications.create) {
-      chrome.notifications.create(id, {
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: title,
-        message: message
-      });
-    }
-  } catch (e) {
-    console.log('[НИР-Документ] Notification error:', e);
-  }
+    chrome.notifications?.create(id, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title,
+      message
+    });
+  } catch {}
 }
 
-// Сброс при установке
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[НИР-Документ] Extension installed');
-  recordingState = {
-    isRecording: false,
-    startTime: null,
-    sessionName: '',
-    clickLog: [],
-    screenshots: [],
-    tabId: null
-  };
-});
-
-// Обработка закрытия вкладки
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (recordingState.tabId === tabId && recordingState.isRecording) {
-    console.log('[НИР-Документ] Tab closed, stopping recording');
-    handleStopRecording({}, () => {});
-  }
+  console.log('[НИР-Документ] Installed');
 });

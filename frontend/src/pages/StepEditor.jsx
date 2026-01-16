@@ -13,239 +13,138 @@ function StepEditor() {
   const [editingText, setEditingText] = useState(null)
   const imageRef = useRef(null)
 
-  useEffect(() => {
-    fetchGuide()
-  }, [guideId])
+  useEffect(() => { fetchGuide() }, [guideId])
 
   const fetchGuide = async () => {
     try {
-      // Пробуем получить по UUID сначала
       let data
-      try {
-        data = await guidesApi.getByUuid(guideId)
-      } catch (e) {
-        // Если не получилось, пробуем по ID
-        data = await guidesApi.getById(guideId)
-      }
+      try { data = await guidesApi.getByUuid(guideId) } 
+      catch { data = await guidesApi.getById(guideId) }
       setGuide(data)
       setSteps(data.steps || [])
-      if (data.steps?.length > 0) {
-        setSelectedStep(data.steps[0])
-      }
-    } catch (error) {
-      console.error('Failed to fetch guide:', error)
-    } finally {
-      setLoading(false)
-    }
+      if (data.steps?.length > 0) setSelectedStep(data.steps[0])
+    } catch (error) { console.error('Failed to fetch guide:', error) }
+    finally { setLoading(false) }
   }
 
-  // Обновление текста шага
   const handleTextUpdate = async (stepId, newText) => {
     setSaving(true)
     try {
       await stepsApi.update(stepId, { edited_text: newText })
-      setSteps(prev => prev.map(s => 
-        s.id === stepId ? { ...s, edited_text: newText } : s
-      ))
-      if (selectedStep?.id === stepId) {
-        setSelectedStep(prev => ({ ...prev, edited_text: newText }))
-      }
-    } catch (error) {
-      console.error('Failed to update step:', error)
-    } finally {
-      setSaving(false)
-      setEditingText(null)
-    }
+      setSteps(prev => prev.map(s => s.id === stepId ? { ...s, edited_text: newText } : s))
+      if (selectedStep?.id === stepId) setSelectedStep(prev => ({ ...prev, edited_text: newText }))
+    } catch {}
+    finally { setSaving(false); setEditingText(null) }
   }
 
-  // Обновление позиции маркера
   const handleMarkerDrag = useCallback(async (stepId, newX, newY) => {
-    // Обновляем локально сразу
-    setSteps(prev => prev.map(s => 
-      s.id === stepId ? { ...s, click_x: newX, click_y: newY } : s
-    ))
-    if (selectedStep?.id === stepId) {
-      setSelectedStep(prev => ({ ...prev, click_x: newX, click_y: newY }))
-    }
-    
-    // Сохраняем на сервер
-    try {
-      await stepsApi.update(stepId, { click_x: newX, click_y: newY })
-    } catch (error) {
-      console.error('Failed to update marker:', error)
-    }
+    setSteps(prev => prev.map(s => s.id === stepId ? { ...s, click_x: newX, click_y: newY } : s))
+    if (selectedStep?.id === stepId) setSelectedStep(prev => ({ ...prev, click_x: newX, click_y: newY }))
+    try { await stepsApi.update(stepId, { click_x: newX, click_y: newY }) } catch {}
   }, [selectedStep])
 
-  // Удаление шага
   const handleDeleteStep = async (stepId) => {
     if (!confirm('Удалить этот шаг?')) return
-    
     try {
       await stepsApi.delete(stepId)
       const newSteps = steps.filter(s => s.id !== stepId)
       setSteps(newSteps)
-      
-      if (selectedStep?.id === stepId) {
-        setSelectedStep(newSteps[0] || null)
-      }
-    } catch (error) {
-      console.error('Failed to delete step:', error)
-    }
+      if (selectedStep?.id === stepId) setSelectedStep(newSteps[0] || null)
+    } catch {}
   }
 
-  // Перемещение шага
   const handleMoveStep = async (stepId, direction) => {
     const index = steps.findIndex(s => s.id === stepId)
     if (index === -1) return
-    
     const newIndex = direction === 'up' ? index - 1 : index + 1
     if (newIndex < 0 || newIndex >= steps.length) return
-    
     const newSteps = [...steps]
     const [moved] = newSteps.splice(index, 1)
     newSteps.splice(newIndex, 0, moved)
-    
-    // Обновляем номера шагов
-    const reorderedSteps = newSteps.map((s, i) => ({ ...s, step_number: i + 1 }))
-    setSteps(reorderedSteps)
-    
-    try {
-      await stepsApi.reorder(guideId, reorderedSteps.map(s => s.id))
-    } catch (error) {
-      console.error('Failed to reorder:', error)
-    }
+    setSteps(newSteps.map((s, i) => ({ ...s, step_number: i + 1 })))
+    try { await stepsApi.reorder(guideId, newSteps.map(s => s.id)) } catch {}
   }
 
-  // Сохранить гайд (обновить статус и вернуться на главную)
   const handleSaveGuide = async () => {
     setSaving(true)
-    try {
-      // Сохраняем гайд со статусом "draft" (готов к редактированию)
-      await guidesApi.update(guide.id, { status: 'draft' })
-    } catch (error) {
-      console.error('Failed to save guide:', error)
-      // Игнорируем ошибку - гайд уже сохранён автоматически
-    } finally {
-      setSaving(false)
-      navigate('/')
-    }
+    try { await guidesApi.update(guide.id, { status: 'draft' }) } catch {}
+    finally { setSaving(false); navigate('/') }
   }
 
-  // Готово к генерации Shorts
   const handleReadyForShorts = async () => {
-    try {
-      await guidesApi.update(guide.id, { status: 'ready' })
-      navigate(`/guide/${guideId}/shorts`)
-    } catch (error) {
-      console.error('Failed to update status:', error)
-    }
+    try { await guidesApi.update(guide.id, { status: 'ready' }); navigate(`/guide/${guideId}/shorts`) } catch {}
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full" />
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
+      <div style={{ width: '24px', height: '24px', border: '2px solid #e0e0e0', borderTopColor: '#ed8d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
 
-  if (!guide) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-400">Гайд не найден</p>
-      </div>
-    )
-  }
+  if (!guide) return <div style={{ padding: '48px', textAlign: 'center', color: '#666' }}>Гайд не найден</div>
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col">
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div style={{ 
+        padding: '16px 24px', 
+        backgroundColor: '#fff', 
+        borderBottom: '1px solid #e0e0e0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
         <div>
-          <h1 className="text-xl font-bold">{guide.title}</h1>
-          <p className="text-sm text-gray-400">{steps.length} шагов</p>
+          <h1 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '16px', fontWeight: 600, color: '#333', margin: 0 }}>{guide.title}</h1>
+          <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999', marginTop: '2px' }}>{steps.length} шагов</p>
         </div>
-        <div className="flex items-center space-x-3">
-          {saving && (
-            <span className="text-sm text-gray-400">Сохранение...</span>
-          )}
-          <button
-            onClick={handleSaveGuide}
-            className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors"
-          >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {saving && <span style={{ fontSize: '12px', color: '#999' }}>Сохранение...</span>}
+          <button onClick={() => navigate('/')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#fff', color: '#666', border: '1px solid #e0e0e0', borderRadius: '4px', cursor: 'pointer' }}>
+            ← Назад
+          </button>
+          <button onClick={handleSaveGuide} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             ✓ Сохранить
           </button>
-          <button
-            onClick={handleReadyForShorts}
-            className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-lg font-medium transition-colors"
-          >
-            Создать Shorts →
+          <button onClick={handleReadyForShorts} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#ed8d48', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            Shorts →
           </button>
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex gap-4 min-h-0">
-        {/* Preview panel */}
-        <div className="flex-1 bg-gray-800 rounded-xl overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-gray-700">
-            <span className="text-sm text-gray-400">
-              Шаг {selectedStep?.step_number || '-'}: Перетащите маркер на нужный элемент
-            </span>
+      {/* Main */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Steps sidebar - light */}
+        <div style={{ width: '280px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e0e0e0' }}>
+            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999' }}>Шаги</span>
           </div>
-          
-          <div className="flex-1 relative overflow-auto p-4">
-            {selectedStep?.screenshot_path ? (
-              <div className="relative inline-block">
-                <img
-                  ref={imageRef}
-                  src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)}
-                  alt={`Step ${selectedStep.step_number}`}
-                  className="max-w-full h-auto rounded-lg"
-                  draggable={false}
-                />
-                
-                {/* Маркер клика */}
-                <DraggableMarker
-                  x={selectedStep.click_x}
-                  y={selectedStep.click_y}
-                  imageRef={imageRef}
-                  onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)}
-                />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Нет скриншота
-              </div>
-            )}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {steps.map((step, index) => (
+              <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id}
+                onSelect={() => setSelectedStep(step)} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
+                onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
+            ))}
           </div>
         </div>
 
-        {/* Steps list */}
-        <div className="w-96 bg-gray-800 rounded-xl overflow-hidden flex flex-col">
-          <div className="p-3 border-b border-gray-700">
-            <span className="text-sm font-medium">Шаги инструкции</span>
+        {/* Preview */}
+        <div style={{ flex: 1, backgroundColor: '#fafafa', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0' }}>
+            <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#666' }}>
+              Шаг {selectedStep?.step_number || '-'} — перетащите маркер
+            </span>
           </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            {steps.map((step, index) => (
-              <StepCard
-                key={step.id}
-                step={step}
-                index={index}
-                isSelected={selectedStep?.id === step.id}
-                isFirst={index === 0}
-                isLast={index === steps.length - 1}
-                isEditing={editingText === step.id}
-                onSelect={() => setSelectedStep(step)}
-                onEdit={() => setEditingText(step.id)}
-                onSave={(text) => handleTextUpdate(step.id, text)}
-                onCancel={() => setEditingText(null)}
-                onDelete={() => handleDeleteStep(step.id)}
-                onMoveUp={() => handleMoveStep(step.id, 'up')}
-                onMoveDown={() => handleMoveStep(step.id, 'down')}
-              />
-            ))}
+          <div style={{ flex: 1, overflow: 'auto', padding: '20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+            {selectedStep?.screenshot_path ? (
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
+                <DraggableMarker x={selectedStep.click_x} y={selectedStep.click_y} imageRef={imageRef} onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)} />
+              </div>
+            ) : (
+              <div style={{ color: '#999', padding: '48px' }}>Нет скриншота</div>
+            )}
           </div>
         </div>
       </div>
@@ -253,235 +152,125 @@ function StepEditor() {
   )
 }
 
-// Компонент перетаскиваемого маркера
 function DraggableMarker({ x, y, imageRef, onDragEnd }) {
   const [isDragging, setIsDragging] = useState(false)
-  const [position, setPosition] = useState({ x, y })
-  const markerRef = useRef(null)
+  const [position, setPosition] = useState({ x: x || 0, y: y || 0 })
 
-  useEffect(() => {
-    setPosition({ x, y })
-  }, [x, y])
+  useEffect(() => { setPosition({ x: x || 0, y: y || 0 }) }, [x, y])
 
   const handleMouseDown = (e) => {
     e.preventDefault()
     setIsDragging(true)
-    
     const handleMouseMove = (moveEvent) => {
       if (!imageRef.current) return
-      
       const rect = imageRef.current.getBoundingClientRect()
-      const newX = Math.max(0, Math.min(
-        imageRef.current.naturalWidth,
-        Math.round((moveEvent.clientX - rect.left) * (imageRef.current.naturalWidth / rect.width))
-      ))
-      const newY = Math.max(0, Math.min(
-        imageRef.current.naturalHeight,
-        Math.round((moveEvent.clientY - rect.top) * (imageRef.current.naturalHeight / rect.height))
-      ))
-      
-      setPosition({ x: newX, y: newY })
+      setPosition({
+        x: Math.max(0, Math.min(imageRef.current.naturalWidth, Math.round((moveEvent.clientX - rect.left) * (imageRef.current.naturalWidth / rect.width)))),
+        y: Math.max(0, Math.min(imageRef.current.naturalHeight, Math.round((moveEvent.clientY - rect.top) * (imageRef.current.naturalHeight / rect.height))))
+      })
     }
-    
     const handleMouseUp = () => {
       setIsDragging(false)
       onDragEnd(position.x, position.y)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-    
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
   }
 
-  // Конвертируем координаты изображения в координаты отображения
-  const getDisplayPosition = () => {
+  const getPos = () => {
     if (!imageRef.current) return { left: 0, top: 0 }
-    
-    const displayWidth = imageRef.current.clientWidth
-    const displayHeight = imageRef.current.clientHeight
-    const naturalWidth = imageRef.current.naturalWidth || displayWidth
-    const naturalHeight = imageRef.current.naturalHeight || displayHeight
-    
-    return {
-      left: (position.x / naturalWidth) * displayWidth,
-      top: (position.y / naturalHeight) * displayHeight,
-    }
+    const dw = imageRef.current.clientWidth || 1, nw = imageRef.current.naturalWidth || dw
+    const dh = imageRef.current.clientHeight || 1, nh = imageRef.current.naturalHeight || dh
+    return { left: ((position.x || 0) / nw) * dw, top: ((position.y || 0) / nh) * dh }
   }
 
-  const displayPos = getDisplayPosition()
+  const pos = getPos()
+  return (
+    <div onMouseDown={handleMouseDown} style={{
+      position: 'absolute', left: pos.left, top: pos.top,
+      width: '36px', height: '36px', marginLeft: '-18px', marginTop: '-18px',
+      cursor: 'move', transform: isDragging ? 'scale(1.1)' : 'scale(1)', transition: 'transform 0.1s'
+    }}>
+      <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '3px solid #ed8d48', backgroundColor: 'rgba(237, 141, 72, 0.2)', animation: 'pulse 2s infinite' }} />
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#ed8d48' }} />
+      </div>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }`}</style>
+    </div>
+  )
+}
+
+function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, onSelect, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }) {
+  const [editText, setEditText] = useState(step.edited_text || step.normalized_text || `Шаг ${index + 1}`)
+  const textareaRef = useRef(null)
+
+  useEffect(() => { if (isEditing && textareaRef.current) { textareaRef.current.focus(); textareaRef.current.select() } }, [isEditing])
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) onSave(editText)
+    else if (e.key === 'Escape') { setEditText(step.edited_text || step.normalized_text || `Шаг ${index + 1}`); onCancel() }
+  }
+
+  const displayText = step.edited_text || step.normalized_text || `Шаг ${index + 1}`
 
   return (
-    <div
-      ref={markerRef}
-      onMouseDown={handleMouseDown}
-      className={`
-        absolute w-10 h-10 -ml-5 -mt-5 cursor-move
-        ${isDragging ? 'scale-110' : ''}
-        transition-transform
-      `}
-      style={{
-        left: displayPos.left,
-        top: displayPos.top,
-      }}
-    >
-      {/* Внешний круг */}
-      <div className="absolute inset-0 rounded-full border-4 border-yellow-400 bg-yellow-400/20 animate-pulse" />
-      
-      {/* Внутренняя точка */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-3 h-3 bg-yellow-400 rounded-full shadow-lg" />
-      </div>
-      
-      {/* Номер шага */}
-      <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-yellow-500 text-black text-xs font-bold rounded">
-        {/* Номер будет передан через props если нужно */}
+    <div onClick={onSelect} style={{
+      padding: '10px 16px',
+      borderBottom: '1px solid #f0f0f0',
+      cursor: 'pointer',
+      backgroundColor: isSelected ? 'rgba(237, 141, 72, 0.08)' : '#fff',
+      borderLeft: isSelected ? '3px solid #ed8d48' : '3px solid transparent',
+      transition: 'all 0.15s'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+        <div style={{
+          width: '22px', height: '22px', borderRadius: '50%',
+          backgroundColor: isSelected ? '#ed8d48' : '#e0e0e0',
+          color: isSelected ? '#fff' : '#666',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '11px', fontFamily: 'Montserrat, sans-serif', fontWeight: 600, flexShrink: 0
+        }}>
+          {index + 1}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {isEditing ? (
+            <div>
+              <textarea ref={textareaRef} value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={handleKeyDown}
+                style={{ width: '100%', padding: '6px 8px', fontSize: '12px', border: '1px solid #e0e0e0', borderRadius: '4px', backgroundColor: '#fff', color: '#333', resize: 'none', outline: 'none' }} rows={2} />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                <button onClick={(e) => { e.stopPropagation(); onSave(editText) }} style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 600, backgroundColor: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>OK</button>
+                <button onClick={(e) => { e.stopPropagation(); onCancel() }} style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 600, backgroundColor: '#e0e0e0', color: '#666', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Отмена</button>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#333', margin: 0, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{displayText}</p>
+          )}
+        </div>
+        {isSelected && !isEditing && (
+          <div style={{ display: 'flex', gap: '2px' }}>
+            <SmallBtn onClick={onEdit} icon="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            {!isFirst && <SmallBtn onClick={onMoveUp} icon="M5 15l7-7 7 7" />}
+            {!isLast && <SmallBtn onClick={onMoveDown} icon="M19 9l-7 7-7-7" />}
+            <SmallBtn onClick={onDelete} icon="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" danger />
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-// Компонент карточки шага
-function StepCard({ 
-  step, 
-  index, 
-  isSelected, 
-  isFirst, 
-  isLast, 
-  isEditing,
-  onSelect, 
-  onEdit, 
-  onSave, 
-  onCancel,
-  onDelete, 
-  onMoveUp, 
-  onMoveDown 
-}) {
-  const [editText, setEditText] = useState(step.edited_text || step.normalized_text)
-  const textareaRef = useRef(null)
-
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus()
-      textareaRef.current.select()
-    }
-  }, [isEditing])
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && e.ctrlKey) {
-      onSave(editText)
-    } else if (e.key === 'Escape') {
-      setEditText(step.edited_text || step.normalized_text)
-      onCancel()
-    }
-  }
-
-  const displayText = step.edited_text || step.normalized_text
-
+function SmallBtn({ onClick, icon, danger }) {
+  const [hover, setHover] = useState(false)
   return (
-    <div
-      onClick={onSelect}
-      className={`
-        p-3 border-b border-gray-700 cursor-pointer transition-colors
-        ${isSelected ? 'bg-gray-700' : 'hover:bg-gray-750'}
-      `}
-    >
-      <div className="flex items-start space-x-3">
-        {/* Номер шага */}
-        <div className={`
-          w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
-          ${isSelected ? 'bg-yellow-500 text-black' : 'bg-gray-600 text-gray-300'}
-        `}>
-          {index + 1}
-        </div>
-
-        {/* Контент */}
-        <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <div>
-              <textarea
-                ref={textareaRef}
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full px-2 py-1.5 bg-gray-900 border border-gray-600 rounded text-sm resize-none focus:ring-1 focus:ring-yellow-500 focus:border-transparent outline-none"
-                rows={3}
-              />
-              <div className="flex items-center space-x-2 mt-2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onSave(editText); }}
-                  className="px-2 py-1 bg-green-600 hover:bg-green-500 rounded text-xs font-medium"
-                >
-                  Сохранить
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onCancel(); }}
-                  className="px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs font-medium"
-                >
-                  Отмена
-                </button>
-                <span className="text-xs text-gray-500">Ctrl+Enter / Esc</span>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-200 line-clamp-2">{displayText}</p>
-          )}
-
-          {/* Оригинальная речь (если отличается) */}
-          {!isEditing && step.raw_speech && step.raw_speech !== displayText && (
-            <p className="text-xs text-gray-500 mt-1 line-clamp-1">
-              Оригинал: {step.raw_speech}
-            </p>
-          )}
-        </div>
-
-        {/* Действия */}
-        {isSelected && !isEditing && (
-          <div className="flex flex-col space-y-1">
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="p-1 text-gray-400 hover:text-white"
-              title="Редактировать"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-            </button>
-            {!isFirst && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
-                className="p-1 text-gray-400 hover:text-white"
-                title="Вверх"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                </svg>
-              </button>
-            )}
-            {!isLast && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
-                className="p-1 text-gray-400 hover:text-white"
-                title="Вниз"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="p-1 text-gray-400 hover:text-red-400"
-              title="Удалить"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+    <button onClick={(e) => { e.stopPropagation(); onClick() }}
+      onMouseOver={() => setHover(true)} onMouseOut={() => setHover(false)}
+      style={{ width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: hover ? (danger ? '#d32f2f' : '#ed8d48') : '#999', transition: 'color 0.15s', borderRadius: '4px' }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={icon} />
+      </svg>
+    </button>
   )
 }
 

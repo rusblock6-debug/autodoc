@@ -110,6 +110,10 @@ class Guide(Base):
         index=True
     )
     
+    # Флаги
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
     # TTS настройки
     tts_voice: Mapped[str] = mapped_column(String(100), default="ru-RU-SvetlanaNeural")
     

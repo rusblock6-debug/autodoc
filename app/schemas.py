@@ -207,6 +207,7 @@ class GuideUpdate(BaseModel):
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
+    is_favorite: Optional[bool] = None
     status: Optional[GuideStatusEnum] = None
 
 
@@ -224,6 +225,7 @@ class GuideListResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_public: bool = False
+    is_favorite: bool = False
     view_count: int = 0
 
 

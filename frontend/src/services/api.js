@@ -54,6 +54,9 @@ export const guidesApi = {
   // Получить гайд по UUID
   getByUuid: (uuid) => api.get(`/guides/uuid/${uuid}`),
   
+  // Создать гайд
+  create: (data) => api.post('/guides', data),
+  
   // Обновить гайд
   update: (guideId, data) => api.patch(`/guides/${guideId}`, data),
   
