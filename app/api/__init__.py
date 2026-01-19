@@ -26,5 +26,5 @@ api_router.include_router(storage_router, prefix="/storage", tags=["Storage"])
 # MVP Workflow Routes - Session -> Step -> Shorts
 api_router.include_router(sessions_router, prefix="/sessions", tags=["Sessions"])
 api_router.include_router(steps_router, prefix="/steps", tags=["Steps"])
-api_router.include_router(export_router, prefix="/export", tags=["Export"])
+api_router.include_router(export_router, tags=["Export"])
 api_router.include_router(shorts_router, prefix="/shorts", tags=["Shorts"])

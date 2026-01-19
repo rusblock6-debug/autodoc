@@ -104,6 +104,12 @@ export const exportApi = {
   
   // Экспорт в HTML
   html: (guideId) => api.get(`/export/${guideId}/html`, { responseType: 'blob' }),
+  
+  // Экспорт в PDF
+  pdf: (guideId) => api.get(`/export/${guideId}/pdf`, { responseType: 'blob' }),
+  
+  // Экспорт в JSON
+  json: (guideId) => api.get(`/export/${guideId}/json`, { responseType: 'blob' }),
 }
 
 // === Storage API ===

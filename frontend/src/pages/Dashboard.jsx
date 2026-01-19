@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { guidesApi } from '../services/api'
+import { guidesApi, exportApi } from '../services/api'
 
 function Dashboard() {
   const { guides: contextGuides, fetchGuides } = useOutletContext() || {}
@@ -67,6 +67,42 @@ function Dashboard() {
       else loadGuides()
     } catch (error) {
       console.error('Failed to toggle favorite:', error)
+    }
+  }
+
+  const handleExport = async (guide, format, e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    try {
+      let blob, filename
+      
+      switch (format) {
+        case 'pdf':
+          blob = await exportApi.pdf(guide.id)
+          filename = `${guide.title}.pdf`
+          break
+        case 'json':
+          blob = await exportApi.json(guide.id)
+          filename = `${guide.title}.json`
+          break
+        default:
+          return
+      }
+      
+      // Скачиваем файл
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+    } catch (error) {
+      console.error(`Failed to export ${format}:`, error)
+      alert(`Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }
 
@@ -148,7 +184,7 @@ function Dashboard() {
           {/* Table header */}
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '40px 1fr 100px 120px', 
+            gridTemplateColumns: '40px 1fr 100px 160px', 
             padding: '8px 12px',
             backgroundColor: '#fafafa',
             borderBottom: '1px solid #e0e0e0',
@@ -178,7 +214,7 @@ function Dashboard() {
               onDragEnd={handleDragEnd}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '40px 1fr 100px 120px',
+                gridTemplateColumns: '40px 1fr 100px 160px',
                 padding: '10px 12px',
                 borderBottom: '1px solid #f0f0f0',
                 textDecoration: 'none',
@@ -229,6 +265,8 @@ function Dashboard() {
                 />
                 <IconButton onClick={(e) => { e.preventDefault(); e.stopPropagation() }} title="Редактировать" icon="edit" />
                 <IconButton onClick={(e) => handleDuplicate(guide, e)} title="Дублировать" icon="copy" />
+                <ExportButton onClick={(e) => handleExport(guide, 'pdf', e)} title="PDF" color="#e53e3e" />
+                <ExportButton onClick={(e) => handleExport(guide, 'json', e)} title="JSON" color="#3b82f6" />
                 <IconButton onClick={(e) => handleDelete(guide.id, e)} title="Удалить" icon="delete" danger />
               </div>
             </Link>
@@ -236,6 +274,40 @@ function Dashboard() {
         </div>
       )}
     </div>
+  )
+}
+
+function ExportButton({ onClick, title, color }) {
+  const [hover, setHover] = useState(false)
+  
+  return (
+    <button
+      onClick={onClick}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => setHover(false)}
+      title={`Экспорт в ${title}`}
+      style={{
+        minWidth: '32px',
+        height: '26px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: hover ? color : 'transparent',
+        color: hover ? '#fff' : color,
+        border: `1px solid ${color}`,
+        borderRadius: '4px',
+        cursor: 'pointer',
+        fontSize: '9px',
+        fontWeight: 600,
+        fontFamily: 'Montserrat, sans-serif',
+        textTransform: 'uppercase',
+        letterSpacing: '0.3px',
+        transition: 'all 0.15s',
+        padding: '0 6px'
+      }}
+    >
+      {title}
+    </button>
   )
 }
 

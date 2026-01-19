@@ -14,7 +14,10 @@ let recordingState = {
   startTime: null,
   sessionName: '',
   clickLog: [],
-  screenshots: []
+  navigationLog: [],
+  screenshots: [],
+  activeTabId: null,
+  recordingTabs: new Set()
 };
 
 // Настройки
@@ -31,7 +34,7 @@ console.log('[НИР-Документ] Background script loaded');
 // ============================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[НИР-Документ] Message:', message.type);
+  console.log('[НИР-Документ] Message:', message.type, sender.tab?.id);
   
   switch (message.type) {
     case 'START_RECORDING':
@@ -48,13 +51,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           isRecording: recordingState.isRecording,
           startTime: recordingState.startTime,
           clickCount: recordingState.clickLog.length,
-          sessionName: recordingState.sessionName
+          navigationCount: recordingState.navigationLog.length,
+          sessionName: recordingState.sessionName,
+          activeTabId: recordingState.activeTabId,
+          recordingTabs: Array.from(recordingState.recordingTabs)
         }
       });
       return false;
       
     case 'CLICK_LOG':
       handleClickLog(message.data, sender);
+      sendResponse({ success: true });
+      return false;
+      
+    case 'NAVIGATION_LOG':
+      handleNavigationLog(message.data, sender);
       sendResponse({ success: true });
       return false;
       
@@ -75,23 +86,41 @@ async function handleStartRecording(message, sendResponse) {
   }
   
   try {
+    // Получаем активную вкладку
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
     // Сброс состояния
     recordingState = {
       isRecording: true,
       startTime: Date.now(),
       sessionName: message.sessionName || 'Новый гайд',
       clickLog: [],
-      screenshots: []
+      navigationLog: [],
+      screenshots: [],
+      activeTabId: activeTab?.id || null,
+      recordingTabs: new Set()
     };
     
     // Инжектим content script во ВСЕ открытые вкладки
     await injectContentScriptToAllTabs();
     
+    // Логируем начальное состояние
+    if (activeTab) {
+      recordingState.navigationLog.push({
+        timestamp: (Date.now() - recordingState.startTime) / 1000,
+        navigationType: 'recording_started',
+        url: activeTab.url,
+        tabId: activeTab.id,
+        isActiveTab: true
+      });
+    }
+    
     showNotification('recording-started', 'НИР-Документ', 'Запись началась! Кликайте по элементам на любой вкладке.');
     
     sendResponse({ 
       success: true, 
-      recordingId: recordingState.startTime 
+      recordingId: recordingState.startTime,
+      activeTabId: recordingState.activeTabId
     });
     
   } catch (error) {
@@ -122,16 +151,19 @@ async function handleStopRecording(message, sendResponse) {
       end_time: Date.now(),
       duration_seconds: (Date.now() - recordingState.startTime) / 1000,
       clicks: recordingState.clickLog,
-      click_count: recordingState.clickLog.length
+      navigation: recordingState.navigationLog,
+      click_count: recordingState.clickLog.length,
+      navigation_count: recordingState.navigationLog.length,
+      recording_tabs: Array.from(recordingState.recordingTabs)
     };
     
-    console.log('[НИР-Документ] Session:', sessionData.click_count, 'clicks');
+    console.log('[НИР-Документ] Session:', sessionData.click_count, 'clicks,', sessionData.navigation_count, 'navigations');
     
     // Отправляем на бэкенд
     const result = await uploadSession(sessionData);
     
-    // Сохраняем количество кликов для уведомления
-    const clickCount = recordingState.clickLog.length;
+    // Сохраняем количество событий для уведомления
+    const eventCount = recordingState.clickLog.length + recordingState.navigationLog.length;
     
     // Сбрасываем состояние
     recordingState = {
@@ -139,12 +171,15 @@ async function handleStopRecording(message, sendResponse) {
       startTime: null,
       sessionName: '',
       clickLog: [],
-      screenshots: []
+      navigationLog: [],
+      screenshots: [],
+      activeTabId: null,
+      recordingTabs: new Set()
     };
     
     // Открываем результат
     if (result.success && result.guide_id) {
-      showNotification('done', 'НИР-Документ', `Готово! ${clickCount} шагов`);
+      showNotification('done', 'НИР-Документ', `Готово! ${eventCount} событий`);
       chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/guide/${result.guide_id}/edit` });
     } else {
       showNotification('done', 'НИР-Документ', result.error || 'Сохранено');
@@ -161,7 +196,7 @@ async function handleStopRecording(message, sendResponse) {
 }
 
 // ============================================
-// CLICK HANDLING
+// CLICK & NAVIGATION HANDLING
 // ============================================
 
 async function handleClickLog(data, sender) {
@@ -169,6 +204,12 @@ async function handleClickLog(data, sender) {
   
   const clickIndex = recordingState.clickLog.length;
   const timestamp = (Date.now() - recordingState.startTime) / 1000;
+  const tabId = sender.tab?.id;
+  
+  // Отмечаем вкладку как активную в записи
+  if (tabId) {
+    recordingState.recordingTabs.add(tabId);
+  }
   
   // Сохраняем клик
   const clickEntry = {
@@ -179,14 +220,17 @@ async function handleClickLog(data, sender) {
     element_id: data.id || null,
     element_class: data.className || null,
     element_text: data.text || null,
+    href: data.href || null,
+    is_link: data.isLink || false,
     viewport_width: data.viewportWidth,
     viewport_height: data.viewportHeight,
     page_url: data.url || sender.tab?.url || null,
+    tab_id: tabId,
     screenshot_index: clickIndex
   };
   
   recordingState.clickLog.push(clickEntry);
-  console.log(`[НИР-Документ] Click #${clickIndex + 1}: ${data.tagName} at ${data.x},${data.y}`);
+  console.log(`[НИР-Документ] Click #${clickIndex + 1}: ${data.tagName} at ${data.x},${data.y} on tab ${tabId}`);
   
   // Делаем скриншот активной вкладки
   try {
@@ -204,7 +248,42 @@ async function handleClickLog(data, sender) {
   // Обновляем popup
   chrome.runtime.sendMessage({
     type: 'CLICK_UPDATE',
-    count: recordingState.clickLog.length
+    count: recordingState.clickLog.length,
+    navigationCount: recordingState.navigationLog.length
+  }).catch(() => {});
+}
+
+async function handleNavigationLog(data, sender) {
+  if (!recordingState.isRecording) return;
+  
+  const timestamp = (Date.now() - recordingState.startTime) / 1000;
+  const tabId = sender.tab?.id;
+  
+  // Отмечаем вкладку как активную в записи
+  if (tabId) {
+    recordingState.recordingTabs.add(tabId);
+  }
+  
+  const navigationEntry = {
+    timestamp,
+    navigation_type: data.navigationType,
+    url: data.url,
+    from_url: data.fromUrl || null,
+    tab_id: tabId,
+    load_time: data.loadTime || null,
+    from_click: data.fromClick || false,
+    click_index: data.clickIndex || null,
+    state_data: data.state || null
+  };
+  
+  recordingState.navigationLog.push(navigationEntry);
+  console.log(`[НИР-Документ] Navigation #${recordingState.navigationLog.length}: ${data.navigationType} to ${data.url} on tab ${tabId}`);
+  
+  // Обновляем popup
+  chrome.runtime.sendMessage({
+    type: 'NAVIGATION_UPDATE',
+    count: recordingState.navigationLog.length,
+    clickCount: recordingState.clickLog.length
   }).catch(() => {});
 }
 
@@ -224,6 +303,7 @@ async function injectContentScriptToAllTabs() {
       
       try {
         // Проверяем, есть ли уже content script
+        await chrome.tabs.sendMessage(tab.id, { type: 'PING' });
         await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
         console.log(`[НИР-Документ] Tab ${tab.id} already has content script`);
       } catch {
@@ -233,7 +313,7 @@ async function injectContentScriptToAllTabs() {
             target: { tabId: tab.id },
             files: ['content.js']
           });
-          await new Promise(r => setTimeout(r, 50));
+          await new Promise(r => setTimeout(r, 100));
           await chrome.tabs.sendMessage(tab.id, { type: 'START_RECORDING' });
           console.log(`[НИР-Документ] Injected into tab ${tab.id}`);
         } catch (e) {
@@ -264,14 +344,58 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tab.url || tab.url.startsWith('chrome://')) return;
   
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content.js']
-    });
-    await new Promise(r => setTimeout(r, 50));
+    // Проверяем, есть ли уже content script
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+      console.log(`[НИР-Документ] Tab ${tabId} already has content script after update`);
+    } catch {
+      // Инжектим content script
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js']
+      });
+      await new Promise(r => setTimeout(r, 100));
+    }
+    
     await chrome.tabs.sendMessage(tabId, { type: 'START_RECORDING' });
-    console.log(`[НИР-Документ] Injected into new tab ${tabId}`);
-  } catch {}
+    console.log(`[НИР-Документ] Injected/restarted recording in updated tab ${tabId}`);
+    
+    // Логируем навигацию
+    if (recordingState.recordingTabs.has(tabId)) {
+      recordingState.navigationLog.push({
+        timestamp: (Date.now() - recordingState.startTime) / 1000,
+        navigation_type: 'tab_updated',
+        url: tab.url,
+        tab_id: tabId,
+        change_info: changeInfo
+      });
+    }
+  } catch (e) {
+    console.log(`[НИР-Документ] Failed to handle tab update ${tabId}:`, e.message);
+  }
+});
+
+// Отслеживаем переключение вкладок
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (!recordingState.isRecording) return;
+  
+  try {
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    recordingState.activeTabId = activeInfo.tabId;
+    
+    // Логируем переключение вкладки
+    recordingState.navigationLog.push({
+      timestamp: (Date.now() - recordingState.startTime) / 1000,
+      navigation_type: 'tab_activated',
+      url: tab.url,
+      tab_id: activeInfo.tabId,
+      from_tab_id: activeInfo.previousTabId || null
+    });
+    
+    console.log(`[НИР-Документ] Tab activated: ${activeInfo.tabId} (${tab.url})`);
+  } catch (e) {
+    console.log(`[НИР-Документ] Failed to handle tab activation:`, e.message);
+  }
 });
 
 // ============================================

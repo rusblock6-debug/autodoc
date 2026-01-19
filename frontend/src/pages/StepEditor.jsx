@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { guidesApi, stepsApi, storageApi } from '../services/api'
+import { guidesApi, stepsApi, storageApi, exportApi } from '../services/api'
 
 function StepEditor() {
   const { guideId } = useParams()
@@ -75,6 +75,39 @@ function StepEditor() {
     try { await guidesApi.update(guide.id, { status: 'ready' }); navigate(`/guide/${guideId}/shorts`) } catch {}
   }
 
+  const handleExport = async (format) => {
+    try {
+      let blob, filename
+      
+      switch (format) {
+        case 'pdf':
+          blob = await exportApi.pdf(guide.id)
+          filename = `${guide.title}.pdf`
+          break
+        case 'json':
+          blob = await exportApi.json(guide.id)
+          filename = `${guide.title}.json`
+          break
+        default:
+          return
+      }
+      
+      // Скачиваем файл
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+    } catch (error) {
+      console.error(`Failed to export ${format}:`, error)
+      alert(`Ошибка экспорта в ${format.toUpperCase()}`)
+    }
+  }
+
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
       <div style={{ width: '24px', height: '24px', border: '2px solid #e0e0e0', borderTopColor: '#ed8d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -103,6 +136,12 @@ function StepEditor() {
           {saving && <span style={{ fontSize: '12px', color: '#999' }}>Сохранение...</span>}
           <button onClick={() => navigate('/')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#fff', color: '#666', border: '1px solid #e0e0e0', borderRadius: '4px', cursor: 'pointer' }}>
             ← Назад
+          </button>
+          <button onClick={() => handleExport('pdf')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#e53e3e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            PDF
+          </button>
+          <button onClick={() => handleExport('json')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+            JSON
           </button>
           <button onClick={handleSaveGuide} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             ✓ Сохранить
