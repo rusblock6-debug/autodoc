@@ -218,7 +218,51 @@ async def update_guide(
     
     logger.info(f"Updated guide: {guide.id}")
     
-    return GuideDetailResponse.model_validate(guide)
+    # Загружаем шаги отдельно для ответа
+    steps_query = (
+        select(GuideStep)
+        .where(GuideStep.guide_id == guide.id)
+        .order_by(GuideStep.step_number)
+    )
+    steps_result = await db.execute(steps_query)
+    steps = steps_result.scalars().all()
+    
+    # Создаем ответ вручную
+    response_data = {
+        "id": guide.id,
+        "uuid": guide.uuid,
+        "title": guide.title,
+        "status": guide.status.value if hasattr(guide.status, 'value') else str(guide.status),
+        "language": guide.language,
+        "tts_voice": guide.tts_voice,
+        "shorts_video_path": guide.shorts_video_path,
+        "shorts_duration_seconds": guide.shorts_duration_seconds,
+        "created_at": guide.created_at,
+        "updated_at": guide.updated_at,
+        "shorts_generated_at": guide.shorts_generated_at,
+        "error_message": guide.error_message,
+        "steps": [
+            {
+                "id": step.id,
+                "guide_id": step.guide_id,
+                "step_number": step.step_number,
+                "click_timestamp": step.click_timestamp,
+                "click_x": step.click_x,
+                "click_y": step.click_y,
+                "screenshot_path": step.screenshot_path,
+                "screenshot_width": step.screenshot_width,
+                "screenshot_height": step.screenshot_height,
+                "raw_speech": step.raw_speech,
+                "normalized_text": step.normalized_text,
+                "edited_text": step.edited_text,
+                "created_at": step.created_at,
+                "updated_at": step.updated_at,
+            }
+            for step in steps
+        ]
+    }
+    
+    return response_data
 
 
 @router.delete("/{guide_id}", status_code=status.HTTP_204_NO_CONTENT)

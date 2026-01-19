@@ -11,6 +11,8 @@ function StepEditor() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editingText, setEditingText] = useState(null)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleValue, setTitleValue] = useState('')
   const imageRef = useRef(null)
 
   useEffect(() => { fetchGuide() }, [guideId])
@@ -22,6 +24,7 @@ function StepEditor() {
       catch { data = await guidesApi.getById(guideId) }
       setGuide(data)
       setSteps(data.steps || [])
+      setTitleValue(data.title || '')
       if (data.steps?.length > 0) setSelectedStep(data.steps[0])
     } catch (error) { console.error('Failed to fetch guide:', error) }
     finally { setLoading(false) }
@@ -35,6 +38,35 @@ function StepEditor() {
       if (selectedStep?.id === stepId) setSelectedStep(prev => ({ ...prev, edited_text: newText }))
     } catch {}
     finally { setSaving(false); setEditingText(null) }
+  }
+
+  const handleTitleUpdate = async () => {
+    if (!titleValue.trim()) {
+      setTitleValue(guide.title)
+      setEditingTitle(false)
+      return
+    }
+    
+    setSaving(true)
+    try {
+      await guidesApi.update(guide.id, { title: titleValue.trim() })
+      setGuide(prev => ({ ...prev, title: titleValue.trim() }))
+    } catch (error) {
+      console.error('Failed to update title:', error)
+      setTitleValue(guide.title)
+    } finally {
+      setSaving(false)
+      setEditingTitle(false)
+    }
+  }
+
+  const handleTitleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleTitleUpdate()
+    } else if (e.key === 'Escape') {
+      setTitleValue(guide.title)
+      setEditingTitle(false)
+    }
   }
 
   const handleMarkerDrag = useCallback(async (stepId, newX, newY) => {
@@ -129,7 +161,49 @@ function StepEditor() {
         justifyContent: 'space-between'
       }}>
         <div>
-          <h1 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '16px', fontWeight: 600, color: '#333', margin: 0 }}>{guide.title}</h1>
+          {editingTitle ? (
+            <input
+              type="text"
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              onBlur={handleTitleUpdate}
+              onKeyDown={handleTitleKeyPress}
+              autoFocus
+              style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '16px',
+                fontWeight: 600,
+                color: '#333',
+                margin: 0,
+                padding: '4px 8px',
+                border: '1px solid #ed8d48',
+                borderRadius: '4px',
+                backgroundColor: '#fff',
+                outline: 'none',
+                minWidth: '200px'
+              }}
+            />
+          ) : (
+            <h1 
+              onClick={() => setEditingTitle(true)}
+              style={{ 
+                fontFamily: 'Montserrat, sans-serif', 
+                fontSize: '16px', 
+                fontWeight: 600, 
+                color: '#333', 
+                margin: 0,
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                transition: 'background-color 0.15s'
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#f5f5f5'}
+              onMouseOut={(e) => e.target.style.backgroundColor = 'transparent'}
+              title="Нажмите для редактирования"
+            >
+              {guide.title}
+            </h1>
+          )}
           <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999', marginTop: '2px' }}>{steps.length} шагов</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
