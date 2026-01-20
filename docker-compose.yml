@@ -28,7 +28,7 @@ services:
       target: development
     container_name: autodoc-ai
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8888}:8000"
     volumes:
       - ./:/workspace/autodoc_ai
       - ./data:/data
@@ -61,7 +61,7 @@ services:
       target: development
     container_name: autodoc-frontend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules

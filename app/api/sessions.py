@@ -55,6 +55,7 @@ async def upload_session(
     
     try:
         logger.info(f"Creating session {session_uuid}, screenshots: {len(screenshots)}")
+        logger.info(f"Session title: {title}")
         
         # Парсим лог кликов если есть
         clicks_data = []
@@ -154,6 +155,8 @@ async def upload_session(
         db.add(guide)
         await db.commit()
         await db.refresh(guide)
+        
+        logger.info(f"Created guide {guide.uuid} with title: {guide.title}")
         
         # Создаём шаги из кликов
         for i, click in enumerate(clicks_data):

@@ -67,7 +67,8 @@
     const target = event.target;
     clickCount++;
     
-    showClickMarker(event.clientX, event.clientY, clickCount);
+    // НЕ показываем маркер во время записи - он будет в редакторе
+    // showClickMarker(event.clientX, event.clientY, clickCount);
     
     // Проверяем, является ли это ссылкой
     const isLink = target.tagName === 'A' || target.closest('a');

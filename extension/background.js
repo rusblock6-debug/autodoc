@@ -22,7 +22,7 @@ let recordingState = {
 
 // Настройки
 const CONFIG = {
-  API_BASE: 'http://localhost:8000',
+  API_BASE: 'http://localhost:8888',
   FRONTEND_URL: 'http://localhost:3000',
   UPLOAD_ENDPOINT: '/api/v1/sessions/upload'
 };
@@ -138,8 +138,11 @@ async function handleStopRecording(message, sendResponse) {
   try {
     // Обновляем имя если передано
     if (message?.sessionName) {
+      console.log('[НИР-Документ] Updating session name to:', message.sessionName);
       recordingState.sessionName = message.sessionName;
     }
+    
+    console.log('[НИР-Документ] Final session name:', recordingState.sessionName);
     
     // Останавливаем запись во всех вкладках
     await stopRecordingInAllTabs();
@@ -404,6 +407,12 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 
 async function uploadSession(sessionData) {
   try {
+    console.log('[НИР-Документ] Uploading session:', {
+      name: sessionData.session_name,
+      clicks: sessionData.click_count,
+      screenshots: recordingState.screenshots.length
+    });
+    
     const clicksJson = JSON.stringify({
       version: '1.0',
       session_name: sessionData.session_name,

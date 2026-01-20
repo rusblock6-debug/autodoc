@@ -253,7 +253,14 @@ function StepEditor() {
             {selectedStep?.screenshot_path ? (
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
-                <DraggableMarker x={selectedStep.click_x} y={selectedStep.click_y} imageRef={imageRef} onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)} />
+                <DraggableMarker 
+                  x={selectedStep.click_x} 
+                  y={selectedStep.click_y} 
+                  viewportWidth={selectedStep.screenshot_width}
+                  viewportHeight={selectedStep.screenshot_height}
+                  imageRef={imageRef} 
+                  onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)} 
+                />
               </div>
             ) : (
               <div style={{ color: '#999', padding: '48px' }}>Нет скриншота</div>
@@ -265,7 +272,7 @@ function StepEditor() {
   )
 }
 
-function DraggableMarker({ x, y, imageRef, onDragEnd }) {
+function DraggableMarker({ x, y, viewportWidth, viewportHeight, imageRef, onDragEnd }) {
   const [isDragging, setIsDragging] = useState(false)
   const [position, setPosition] = useState({ x: x || 0, y: y || 0 })
 
@@ -277,9 +284,11 @@ function DraggableMarker({ x, y, imageRef, onDragEnd }) {
     const handleMouseMove = (moveEvent) => {
       if (!imageRef.current) return
       const rect = imageRef.current.getBoundingClientRect()
+      const vw = viewportWidth || imageRef.current.naturalWidth
+      const vh = viewportHeight || imageRef.current.naturalHeight
       setPosition({
-        x: Math.max(0, Math.min(imageRef.current.naturalWidth, Math.round((moveEvent.clientX - rect.left) * (imageRef.current.naturalWidth / rect.width)))),
-        y: Math.max(0, Math.min(imageRef.current.naturalHeight, Math.round((moveEvent.clientY - rect.top) * (imageRef.current.naturalHeight / rect.height))))
+        x: Math.max(0, Math.min(vw, Math.round((moveEvent.clientX - rect.left) * (vw / rect.width)))),
+        y: Math.max(0, Math.min(vh, Math.round((moveEvent.clientY - rect.top) * (vh / rect.height))))
       })
     }
     const handleMouseUp = () => {
@@ -294,9 +303,11 @@ function DraggableMarker({ x, y, imageRef, onDragEnd }) {
 
   const getPos = () => {
     if (!imageRef.current) return { left: 0, top: 0 }
-    const dw = imageRef.current.clientWidth || 1, nw = imageRef.current.naturalWidth || dw
-    const dh = imageRef.current.clientHeight || 1, nh = imageRef.current.naturalHeight || dh
-    return { left: ((position.x || 0) / nw) * dw, top: ((position.y || 0) / nh) * dh }
+    const dw = imageRef.current.clientWidth || 1
+    const dh = imageRef.current.clientHeight || 1
+    const vw = viewportWidth || imageRef.current.naturalWidth || dw
+    const vh = viewportHeight || imageRef.current.naturalHeight || dh
+    return { left: ((position.x || 0) / vw) * dw, top: ((position.y || 0) / vh) * dh }
   }
 
   const pos = getPos()

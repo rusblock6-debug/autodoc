@@ -24,7 +24,7 @@ docker-compose up -d
 
 4. **Доступ к системе:**
    - Frontend: http://localhost:3000
-   - API Docs: http://localhost:8000/docs
+   - API Docs: http://localhost:8888/docs
 
 5. **Редактирование гайдов:**
    - Нажмите на название гайда в редакторе для изменения
@@ -222,8 +222,8 @@ curl http://localhost:8000/health
 
 | Сервис | URL | Учётные данные |
 |--------|-----|----------------|
-| **API** | http://localhost:8000 | — |
-| **Swagger Docs** | http://localhost:8000/docs | — |
+| **API** | http://localhost:8888 | — |
+| **Swagger Docs** | http://localhost:8888/docs | — |
 | **MinIO Console** | http://localhost:9001 | minioadmin / minioadmin |
 | **pgAdmin** | http://localhost:5050 | admin@autodoc.local / admin |
 

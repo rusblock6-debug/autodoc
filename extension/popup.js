@@ -133,6 +133,8 @@ class Popup {
     // Получаем текущее имя перед остановкой
     const currentName = this.el.sessionName.value.trim() || 'Новый гайд';
     
+    console.log('[Popup] Stopping recording with name:', currentName);
+    
     this.el.stopBtn.disabled = true;
     this.el.stopBtn.textContent = 'Сохранение...';
     

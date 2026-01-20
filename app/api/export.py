@@ -382,10 +382,17 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
             # Получаем изображение как base64 для встраивания в PDF
             screenshot_base64 = _get_screenshot_base64(step.screenshot_path)
             if screenshot_base64:
+                # Вычисляем позицию маркера в процентах от размера viewport
+                marker_html = ""
+                if step.click_x and step.click_y and step.screenshot_width and step.screenshot_height:
+                    marker_left_percent = (step.click_x / step.screenshot_width) * 100
+                    marker_top_percent = (step.click_y / step.screenshot_height) * 100
+                    marker_html = f'<div class="click-marker" style="left: {marker_left_percent:.2f}%; top: {marker_top_percent:.2f}%;"><span>{step.step_number}</span></div>'
+                
                 screenshot_html = f"""
                 <div class="screenshot">
                     <img src="data:image/png;base64,{screenshot_base64}" alt="Шаг {step.step_number}" />
-                    {f'<div class="click-marker" style="left: {step.click_x}px; top: {step.click_y}px;"><span>{step.step_number}</span></div>' if step.click_x and step.click_y else ''}
+                    {marker_html}
                 </div>
                 """
             else:
