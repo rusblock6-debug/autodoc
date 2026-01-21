@@ -13,6 +13,9 @@ function StepEditor() {
   const [editingText, setEditingText] = useState(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleValue, setTitleValue] = useState('')
+  const [showAnnotations, setShowAnnotations] = useState(false)
+  const [annotations, setAnnotations] = useState([])
+  const [drawingAnnotation, setDrawingAnnotation] = useState(null)
   const imageRef = useRef(null)
 
   useEffect(() => { fetchGuide() }, [guideId])
@@ -25,7 +28,10 @@ function StepEditor() {
       setGuide(data)
       setSteps(data.steps || [])
       setTitleValue(data.title || '')
-      if (data.steps?.length > 0) setSelectedStep(data.steps[0])
+      if (data.steps?.length > 0) {
+        setSelectedStep(data.steps[0])
+        setAnnotations(data.steps[0].annotations || [])
+      }
     } catch (error) { console.error('Failed to fetch guide:', error) }
     finally { setLoading(false) }
   }
@@ -74,6 +80,42 @@ function StepEditor() {
     if (selectedStep?.id === stepId) setSelectedStep(prev => ({ ...prev, click_x: newX, click_y: newY }))
     try { await stepsApi.update(stepId, { click_x: newX, click_y: newY }) } catch {}
   }, [selectedStep])
+
+  const handleAddAnnotation = (type) => {
+    const newAnnotation = {
+      id: Date.now(),
+      type,
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+      color: '#ed8d48'
+    }
+    const updated = [...annotations, newAnnotation]
+    setAnnotations(updated)
+    saveAnnotations(selectedStep.id, updated)
+  }
+
+  const handleUpdateAnnotation = (id, updates) => {
+    const updated = annotations.map(a => a.id === id ? { ...a, ...updates } : a)
+    setAnnotations(updated)
+    saveAnnotations(selectedStep.id, updated)
+  }
+
+  const handleDeleteAnnotation = (id) => {
+    const updated = annotations.filter(a => a.id !== id)
+    setAnnotations(updated)
+    saveAnnotations(selectedStep.id, updated)
+  }
+
+  const saveAnnotations = async (stepId, annotationsData) => {
+    try {
+      await stepsApi.update(stepId, { annotations: annotationsData })
+      setSteps(prev => prev.map(s => s.id === stepId ? { ...s, annotations: annotationsData } : s))
+    } catch (error) {
+      console.error('Failed to save annotations:', error)
+    }
+  }
 
   const handleDeleteStep = async (stepId) => {
     if (!confirm('Удалить этот шаг?')) return
@@ -217,9 +259,6 @@ function StepEditor() {
           <button onClick={() => handleExport('json')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             JSON
           </button>
-          <button onClick={handleSaveGuide} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            ✓ Сохранить
-          </button>
           <button onClick={handleReadyForShorts} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#ed8d48', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             Shorts →
           </button>
@@ -236,7 +275,7 @@ function StepEditor() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {steps.map((step, index) => (
               <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id}
-                onSelect={() => setSelectedStep(step)} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
+                onSelect={() => { setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
           </div>
@@ -244,15 +283,114 @@ function StepEditor() {
 
         {/* Preview */}
         <div style={{ flex: 1, backgroundColor: '#fafafa', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0' }}>
+          <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#666' }}>
-              Шаг {selectedStep?.step_number || '-'} — перетащите маркер
+              Шаг {selectedStep?.step_number || '-'}
             </span>
+            {/* Toolbar - right side */}
+            {selectedStep && (
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {/* Маркер */}
+                {selectedStep.click_x > 0 && selectedStep.click_y > 0 ? (
+                  <button
+                    onClick={() => handleMarkerDrag(selectedStep.id, 0, 0)}
+                    title="Убрать маркер"
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      backgroundColor: '#ed8d48',
+                      border: 'none',
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      color: '#fff',
+                      fontFamily: 'Montserrat, sans-serif'
+                    }}
+                  >
+                    {selectedStep.step_number}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const centerX = Math.floor((selectedStep?.screenshot_width || 1920) / 2)
+                      const centerY = Math.floor((selectedStep?.screenshot_height || 1080) / 2)
+                      handleMarkerDrag(selectedStep.id, centerX, centerY)
+                    }}
+                    title="Добавить маркер"
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      backgroundColor: 'transparent',
+                      border: '2px dashed #ed8d48',
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      color: '#ed8d48',
+                      fontFamily: 'Montserrat, sans-serif'
+                    }}
+                  >
+                    {selectedStep.step_number}
+                  </button>
+                )}
+                
+                {/* Прямоугольник */}
+                <button 
+                  onClick={() => handleAddAnnotation('rect')} 
+                  title="Добавить прямоугольник"
+                  style={{ 
+                    width: '28px',
+                    height: '28px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '14px',
+                    color: '#ed8d48'
+                  }}
+                >
+                  ▭
+                </button>
+                
+                {/* Очистить все */}
+                {annotations.length > 0 && (
+                  <button 
+                    onClick={() => { setAnnotations([]); saveAnnotations(selectedStep.id, []) }} 
+                    title="Очистить все аннотации"
+                    style={{ 
+                      width: '28px',
+                      height: '28px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      color: '#999'
+                    }}
+                  >
+                    🗑
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{ flex: 1, overflow: 'auto', padding: '20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
             {selectedStep?.screenshot_path ? (
               <div style={{ position: 'relative', display: 'inline-block' }}>
-                <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 200px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
+                <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 300px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
                 <DraggableMarker 
                   x={selectedStep.click_x} 
                   y={selectedStep.click_y} 
@@ -261,6 +399,17 @@ function StepEditor() {
                   imageRef={imageRef} 
                   onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)} 
                 />
+                {annotations.map(ann => (
+                  <DraggableAnnotation
+                    key={ann.id}
+                    annotation={ann}
+                    imageRef={imageRef}
+                    viewportWidth={selectedStep.screenshot_width}
+                    viewportHeight={selectedStep.screenshot_height}
+                    onUpdate={(updates) => handleUpdateAnnotation(ann.id, updates)}
+                    onDelete={() => handleDeleteAnnotation(ann.id)}
+                  />
+                ))}
               </div>
             ) : (
               <div style={{ color: '#999', padding: '48px' }}>Нет скриншота</div>
@@ -311,6 +460,12 @@ function DraggableMarker({ x, y, viewportWidth, viewportHeight, imageRef, onDrag
   }
 
   const pos = getPos()
+  
+  // Не показываем маркер если координаты 0,0 (удалён)
+  if ((x === 0 && y === 0) || !x || !y) {
+    return null
+  }
+  
   return (
     <div onMouseDown={handleMouseDown} style={{
       position: 'absolute', left: pos.left, top: pos.top,
@@ -322,6 +477,156 @@ function DraggableMarker({ x, y, viewportWidth, viewportHeight, imageRef, onDrag
         <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#ed8d48' }} />
       </div>
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }`}</style>
+    </div>
+  )
+}
+
+function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeight, onUpdate, onDelete }) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
+  const [localPos, setLocalPos] = useState({ x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height })
+  const isMountedRef = useRef(true)
+  const prevAnnotationIdRef = useRef(annotation.id)
+
+  useEffect(() => {
+    // Обновляем localPos при монтировании или при смене аннотации (переключение шагов)
+    if (prevAnnotationIdRef.current !== annotation.id) {
+      setLocalPos({ x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height })
+      prevAnnotationIdRef.current = annotation.id
+    }
+  }, [annotation.id, annotation.x, annotation.y, annotation.width, annotation.height])
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const handleMouseDown = (e, action) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    if (action === 'resize') {
+      setIsResizing(true)
+    } else {
+      setIsDragging(true)
+    }
+    
+    const startMousePos = {
+      x: e.clientX,
+      y: e.clientY
+    }
+    const startAnnotationPos = { ...localPos }
+    let currentPos = { ...localPos }
+    
+    const handleMouseMove = (moveEvent) => {
+      if (!imageRef.current) return
+      const rect = imageRef.current.getBoundingClientRect()
+      const vw = viewportWidth || imageRef.current.naturalWidth
+      const vh = viewportHeight || imageRef.current.naturalHeight
+      
+      const deltaX = (moveEvent.clientX - startMousePos.x) * (vw / rect.width)
+      const deltaY = (moveEvent.clientY - startMousePos.y) * (vh / rect.height)
+      
+      if (action === 'resize') {
+        const newWidth = Math.max(30, startAnnotationPos.width + deltaX)
+        const newHeight = Math.max(30, startAnnotationPos.height + deltaY)
+        currentPos = { ...currentPos, width: newWidth, height: newHeight }
+        setLocalPos(currentPos)
+      } else {
+        const newX = Math.max(0, Math.min(vw - startAnnotationPos.width, startAnnotationPos.x + deltaX))
+        const newY = Math.max(0, Math.min(vh - startAnnotationPos.height, startAnnotationPos.y + deltaY))
+        currentPos = { ...currentPos, x: newX, y: newY }
+        setLocalPos(currentPos)
+      }
+    }
+    
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      setIsResizing(false)
+      if (isMountedRef.current) {
+        onUpdate(currentPos)
+      }
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
+
+  const getPos = () => {
+    if (!imageRef.current) return { left: 0, top: 0, width: 0, height: 0 }
+    const dw = imageRef.current.clientWidth || 1
+    const dh = imageRef.current.clientHeight || 1
+    const vw = viewportWidth || imageRef.current.naturalWidth || dw
+    const vh = viewportHeight || imageRef.current.naturalHeight || dh
+    return {
+      left: (localPos.x / vw) * dw,
+      top: (localPos.y / vh) * dh,
+      width: (localPos.width / vw) * dw,
+      height: (localPos.height / vh) * dh
+    }
+  }
+
+  const pos = getPos()
+
+  return (
+    <div
+      onMouseDown={(e) => handleMouseDown(e, 'move')}
+      style={{
+        position: 'absolute',
+        left: pos.left,
+        top: pos.top,
+        width: pos.width,
+        height: pos.height,
+        border: `3px solid ${annotation.color}`,
+        borderRadius: '4px',
+        backgroundColor: 'transparent',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        boxSizing: 'border-box',
+        transition: isDragging || isResizing ? 'none' : 'all 0.1s'
+      }}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        style={{
+          position: 'absolute',
+          top: '-18px',
+          right: '-18px',
+          width: '36px',
+          height: '36px',
+          borderRadius: '50%',
+          backgroundColor: '#ed8d48',
+          color: '#fff',
+          border: '3px solid #fff',
+          cursor: 'pointer',
+          fontSize: '11px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 600,
+          fontFamily: 'Montserrat, sans-serif',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+        }}
+      >
+        ×
+      </button>
+      <div
+        onMouseDown={(e) => handleMouseDown(e, 'resize')}
+        style={{
+          position: 'absolute',
+          bottom: '-5px',
+          right: '-5px',
+          width: '10px',
+          height: '10px',
+          backgroundColor: '#ed8d48',
+          border: '2px solid #fff',
+          borderRadius: '50%',
+          cursor: 'nwse-resize'
+        }}
+      />
     </div>
   )
 }

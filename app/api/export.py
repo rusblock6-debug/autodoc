@@ -389,10 +389,23 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
                     marker_top_percent = (step.click_y / step.screenshot_height) * 100
                     marker_html = f'<div class="click-marker" style="left: {marker_left_percent:.2f}%; top: {marker_top_percent:.2f}%;"><span>{step.step_number}</span></div>'
                 
+                # Добавляем аннотации (прямоугольники)
+                annotations_html = ""
+                if step.annotations:
+                    for ann in step.annotations:
+                        if ann.get('type') == 'rect':
+                            ann_left = (ann.get('x', 0) / step.screenshot_width) * 100
+                            ann_top = (ann.get('y', 0) / step.screenshot_height) * 100
+                            ann_width = (ann.get('width', 100) / step.screenshot_width) * 100
+                            ann_height = (ann.get('height', 50) / step.screenshot_height) * 100
+                            ann_color = ann.get('color', '#ed8d48')
+                            annotations_html += f'<div class="annotation-rect" style="left: {ann_left:.2f}%; top: {ann_top:.2f}%; width: {ann_width:.2f}%; height: {ann_height:.2f}%; border-color: {ann_color};"></div>'
+                
                 screenshot_html = f"""
                 <div class="screenshot">
                     <img src="data:image/png;base64,{screenshot_base64}" alt="Шаг {step.step_number}" />
                     {marker_html}
+                    {annotations_html}
                 </div>
                 """
             else:
@@ -627,6 +640,14 @@ def _get_pdf_css() -> str:
         border: 2px solid white;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         transform: translate(-50%, -50%);
+    }
+    
+    .annotation-rect {
+        position: absolute;
+        border: 3px solid #ed8d48;
+        border-radius: 4px;
+        background: transparent;
+        box-sizing: border-box;
     }
     
     .step-text {

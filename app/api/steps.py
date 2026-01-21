@@ -93,6 +93,12 @@ async def update_step(
         step.click_y = body["click_y"]
         updated = True
     
+    # Обновляем аннотации если переданы
+    if "annotations" in body:
+        step.annotations = body["annotations"]
+        updated = True
+        logger.info(f"Step {step_id} annotations updated: {len(body['annotations'])} items")
+    
     if "click_x" in body or "click_y" in body:
         logger.info(f"Step {step_id} marker moved to ({step.click_x}, {step.click_y})")
     

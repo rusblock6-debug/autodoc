@@ -172,6 +172,10 @@ class GuideStep(Base):
     screenshot_width: Mapped[int] = mapped_column(Integer, nullable=False)
     screenshot_height: Mapped[int] = mapped_column(Integer, nullable=False)
     
+    # === АННОТАЦИИ ===
+    # JSON массив аннотаций: [{type: 'circle'|'rect'|'arrow', x, y, width, height, color}]
+    annotations: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    
     # === ТЕКСТ ===
     # Оригинальная речь (что сказали до клика)
     raw_speech: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -148,6 +148,9 @@ class GuideStepUpdate(BaseModel):
     final_text: Optional[str] = None
     zoom_level: Optional[float] = None
     zoom_region: Optional[ZoomRegion] = None
+    click_x: Optional[int] = None
+    click_y: Optional[int] = None
+    annotations: Optional[List[Dict[str, Any]]] = None
 
 
 class GuideStepResponse(GuideStepBase, TimestampMixin):
@@ -272,6 +275,7 @@ class GuideStepResponseSimple(BaseModel):
     raw_speech: Optional[str] = None
     normalized_text: str
     edited_text: Optional[str] = None
+    annotations: Optional[List[Dict[str, Any]]] = None
     tts_audio_path: Optional[str] = None
     tts_duration_seconds: Optional[float] = None
     created_at: datetime
