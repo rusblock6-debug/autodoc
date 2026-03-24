@@ -407,6 +407,49 @@ class StorageService:
         except S3Error as e:
             raise StorageError(f"Failed to generate download URL: {e}")
     
+    def save_screenshot_local(
+        self,
+        file_data: BinaryIO,
+        filename: str,
+        guide_id: int,
+        subfolder: str = "screenshots",
+    ) -> str:
+        """
+        Сохранить скриншот локально в /data/screenshots.
+        
+        Args:
+            file_data: Файл для загрузки
+            filename: Имя файла
+            guide_id: ID гайда
+            subfolder: Подпапка
+            
+        Returns:
+            Относительный путь к файлу
+        """
+        import shutil
+        from pathlib import Path
+        
+        # Создаём директорию
+        screenshots_dir = Path("/data/screenshots") / f"guide-{guide_id}"
+        if subfolder:
+            screenshots_dir = screenshots_dir / subfolder
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Сохраняем файл
+        local_path = screenshots_dir / filename
+        file_data.seek(0)
+        with open(local_path, 'wb') as f:
+            shutil.copyfileobj(file_data, f)
+        
+        # Возвращаем относительный путь
+        relative_path = f"screenshots/guide-{guide_id}"
+        if subfolder:
+            relative_path += f"/{subfolder}"
+        relative_path += f"/{filename}"
+        
+        logger.info(f"Screenshot saved locally: {relative_path}")
+        return relative_path
+    
     def delete_file(
         self,
         object_key: str,

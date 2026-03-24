@@ -271,7 +271,8 @@ async def preview_shorts_segments(
 
 
 async def _get_screenshot_url(key: str) -> str:
-    """Получить полный URL скриншота."""
+    """Получить полный URL скриншота.
+    Теперь работает с локальными файлами."""
     if not key:
         return ""
     
@@ -279,8 +280,9 @@ async def _get_screenshot_url(key: str) -> str:
     if key.startswith("http"):
         return key
     
-    # Генерируем presigned URL
-    return await storage_service.generate_download_url(key, expiry_seconds=3600)
+    # Для локальных файлов возвращаем URL к API
+    # Формат: "screenshots/guide-19/filename.png"
+    return f"/api/v1/storage/file?path={key}"
 
 
 def _estimate_tts_duration(text: str, words_per_second: float = 3.0) -> float:

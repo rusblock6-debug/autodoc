@@ -244,66 +244,48 @@ async def get_file(
 ):
     """
     Получение файла из хранилища.
-    Определяет бакет автоматически по пути.
+    Теперь работает с локальными файлами и конвертирует старый формат.
     """
-    from fastapi.responses import StreamingResponse
-    import io
+    from fastapi.responses import FileResponse
+    from pathlib import Path
     
-    # Определяем бакет по пути
-    bucket = StorageBucket.SCREENSHOTS  # По умолчанию скриншоты
+    # Конвертируем путь в полный путь в /data
+    full_path_str = path
     
-    if path.startswith("autodoc-uploads/") or "/uploads/" in path:
-        bucket = StorageBucket.UPLOADS
-        path = path.replace("autodoc-uploads/", "").replace("/uploads/", "")
-    elif path.startswith("autodoc-screenshots/") or "/screenshots/" in path:
-        bucket = StorageBucket.SCREENSHOTS
-        path = path.replace("autodoc-screenshots/", "").replace("/screenshots/", "")
-    elif path.startswith("autodoc-videos/") or "/videos/" in path:
-        bucket = StorageBucket.VIDEOS
-        path = path.replace("autodoc-videos/", "").replace("/videos/", "")
-    elif path.startswith("autodoc-audio/") or "/audio/" in path:
-        bucket = StorageBucket.AUDIO
-        path = path.replace("autodoc-audio/", "").replace("/audio/", "")
+    # Если путь в старом формате (без "screenshots/"), добавляем префикс
+    if not path.startswith("screenshots/"):
+        full_path_str = f"screenshots/{path}"
     
-    try:
-        # Получаем файл из MinIO
-        file_data = storage_service.get_file(path, bucket)
-        
-        if file_data is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found",
-            )
-        
-        # Определяем content-type
-        content_type = "application/octet-stream"
-        if path.endswith(".png"):
-            content_type = "image/png"
-        elif path.endswith(".jpg") or path.endswith(".jpeg"):
-            content_type = "image/jpeg"
-        elif path.endswith(".webm"):
-            content_type = "video/webm"
-        elif path.endswith(".mp4"):
-            content_type = "video/mp4"
-        elif path.endswith(".wav"):
-            content_type = "audio/wav"
-        elif path.endswith(".mp3"):
-            content_type = "audio/mpeg"
-        
-        return StreamingResponse(
-            io.BytesIO(file_data),
-            media_type=content_type,
-            headers={
-                "Cache-Control": "public, max-age=86400",
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get file {path}: {e}")
+    full_path = Path("/data") / full_path_str
+    
+    if not full_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"File not found: {path}",
         )
+    
+    # Определяем content-type
+    content_type = "application/octet-stream"
+    if path.endswith(".png"):
+        content_type = "image/png"
+    elif path.endswith(".jpg") or path.endswith(".jpeg"):
+        content_type = "image/jpeg"
+    elif path.endswith(".webm"):
+        content_type = "video/webm"
+    elif path.endswith(".mp4"):
+        content_type = "video/mp4"
+    elif path.endswith(".wav"):
+        content_type = "audio/wav"
+    elif path.endswith(".mp3"):
+        content_type = "audio/mpeg"
+    
+    return FileResponse(
+        str(full_path),
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=86400",
+        }
+    )
 
 
 @router.post("/copy")

@@ -718,18 +718,31 @@ def _convert_simple_markdown(md: str) -> str:
     return html
 
 def _get_screenshot_base64(screenshot_path: str) -> Optional[str]:
-    """Получает скриншот как base64 строку для встраивания в PDF."""
+    """Получает скриншот как base64 строку для встраивания в PDF.
+    Теперь работает с локальными файлами и конвертирует старый формат."""
     try:
-        from app.services.storage import storage_service, StorageBucket
+        from pathlib import Path
         
-        # Получаем файл из MinIO (скриншоты хранятся в бакете SCREENSHOTS)
-        file_data = storage_service.get_file(screenshot_path, StorageBucket.SCREENSHOTS)
-        if file_data:
-            # Кодируем в base64
-            return base64.b64encode(file_data).decode('utf-8')
+        # Конвертируем путь в полный путь в /data
+        full_path_str = screenshot_path
         
-        logger.warning(f"Screenshot not found: {screenshot_path}")
-        return None
+        # Если путь в старом формате (без "screenshots/"), добавляем префикс
+        # Старый: "6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
+        # Новый: "screenshots/6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
+        if not screenshot_path.startswith("screenshots/"):
+            full_path_str = f"screenshots/{screenshot_path}"
+        
+        full_path = Path("/data") / full_path_str
+        
+        if not full_path.exists():
+            logger.warning(f"Screenshot file not found: {full_path}")
+            return None
+        
+        # Читаем файл и кодируем в base64
+        with open(full_path, 'rb') as f:
+            file_data = f.read()
+        
+        return base64.b64encode(file_data).decode('utf-8')
         
     except Exception as e:
         logger.error(f"Failed to get screenshot {screenshot_path}: {e}")

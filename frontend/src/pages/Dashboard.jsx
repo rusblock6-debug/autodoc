@@ -265,8 +265,8 @@ function Dashboard() {
                 />
                 <IconButton onClick={(e) => { e.preventDefault(); e.stopPropagation() }} title="Редактировать" icon="edit" />
                 <IconButton onClick={(e) => handleDuplicate(guide, e)} title="Дублировать" icon="copy" />
-                <ExportButton onClick={(e) => handleExport(guide, 'pdf', e)} title="PDF" color="#e53e3e" />
-                <ExportButton onClick={(e) => handleExport(guide, 'json', e)} title="JSON" color="#3b82f6" />
+                <IconButton onClick={(e) => handleExport(guide, 'pdf', e)} title="PDF" icon="download" color="#e53e3e" />
+                <IconButton onClick={(e) => handleExport(guide, 'json', e)} title="JSON" icon="download" color="#3b82f6" />
                 <IconButton onClick={(e) => handleDelete(guide.id, e)} title="Удалить" icon="delete" danger />
               </div>
             </Link>
@@ -274,40 +274,6 @@ function Dashboard() {
         </div>
       )}
     </div>
-  )
-}
-
-function ExportButton({ onClick, title, color }) {
-  const [hover, setHover] = useState(false)
-  
-  return (
-    <button
-      onClick={onClick}
-      onMouseOver={() => setHover(true)}
-      onMouseOut={() => setHover(false)}
-      title={`Экспорт в ${title}`}
-      style={{
-        minWidth: '32px',
-        height: '26px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: hover ? color : 'transparent',
-        color: hover ? '#fff' : color,
-        border: `1px solid ${color}`,
-        borderRadius: '4px',
-        cursor: 'pointer',
-        fontSize: '9px',
-        fontWeight: 600,
-        fontFamily: 'Montserrat, sans-serif',
-        textTransform: 'uppercase',
-        letterSpacing: '0.3px',
-        transition: 'all 0.15s',
-        padding: '0 6px'
-      }}
-    >
-      {title}
-    </button>
   )
 }
 

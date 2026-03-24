@@ -108,18 +108,24 @@ async def upload_session(
                 audio_path = result.get('object_key')
                 logger.info(f"Audio uploaded: {audio_path}")
             
-            # Сохраняем скриншоты
+            # Сохраняем скриншоты ЛОКАЛЬНО (без MinIO)
+            import shutil
+            from pathlib import Path
+                        
+            screenshots_dir = Path("/data/screenshots") / session_uuid
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+                        
             for i, screenshot in enumerate(screenshots):
                 if screenshot and screenshot.filename:
-                    result = storage_service.upload_file(
-                        screenshot.file,
-                        f"screenshot_{i}.png",
-                        StorageBucket.SCREENSHOTS,
-                        content_type="image/png",
-                        subfolder=session_uuid
-                    )
-                    screenshot_paths.append(result.get('object_key'))
-                    logger.info(f"Screenshot {i} uploaded: {result.get('object_key')}")
+                    # Сохраняем локально
+                    local_path = screenshots_dir / f"screenshot_{i}.png"
+                    screenshot.file.seek(0)
+                    with open(local_path, 'wb') as f:
+                        shutil.copyfileobj(screenshot.file, f)
+                                
+                    # В БД пишем относительный путь
+                    screenshot_paths.append(f"screenshots/{session_uuid}/screenshot_{i}.png")
+                    logger.info(f"Screenshot {i} saved locally: {screenshot_paths[-1]}")
                 
         except Exception as e:
             logger.warning(f"Storage upload failed (continuing without files): {e}")
@@ -144,8 +150,9 @@ async def upload_session(
         logger.info(f"Session {session_uuid} created with {session.click_count} clicks")
         
         # Создаём гайд сразу (без AI обработки для MVP)
+        # UUID гайда = UUID сессии для простоты
         guide = Guide(
-            uuid=str(uuid4()),
+            uuid=session_uuid,  # Используем тот же UUID что и у сессии
             session_id=session.id,
             title=session.title,
             language="ru",

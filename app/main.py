@@ -225,6 +225,10 @@ async def add_request_id(request: Request, call_next):
 # === API Routes ===
 app.include_router(api_router, prefix="/api/v1")
 
+# === Static Files (для скриншотов) ===
+# Раздаем скриншоты напрямую из /data/screenshots
+app.mount("/data/screenshots", StaticFiles(directory="/data/screenshots"), name="screenshots")
+
 
 # === Health Check ===
 
