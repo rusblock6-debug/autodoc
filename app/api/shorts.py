@@ -274,8 +274,9 @@ async def _get_screenshot_url(key: str) -> str:
         return key
     
     # Для локальных файлов возвращаем URL к API
-    # Формат: "screenshots/guide-19/filename.png"
-    return f"/api/v1/storage/file?path={key}"
+    # Формат: "/screenshots/{uuid}/filename.png"
+    # Используем endpoint /guides/screenshots/{path}
+    return f"/api/v1/guides/screenshots{key}"
 
 
 def _estimate_tts_duration(text: str, words_per_second: float = 3.0) -> float:
