@@ -117,8 +117,8 @@ export const storageApi = {
   // Получить URL для скачивания файла
   getDownloadUrl: (fileKey) => api.get(`/storage/download-url`, { params: { key: fileKey } }),
   
-  // Получить URL скриншота
-  getScreenshotUrl: (path) => `/api/v1/storage/file?path=${encodeURIComponent(path)}`,
+  // Получить URL скриншота (теперь через guides endpoint)
+  getScreenshotUrl: (path) => `${API_BASE}/guides/screenshots${path}`,
 }
 
 export default api

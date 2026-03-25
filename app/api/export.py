@@ -726,11 +726,15 @@ def _get_screenshot_base64(screenshot_path: str) -> Optional[str]:
         # Конвертируем путь в полный путь в /data
         full_path_str = screenshot_path
         
+        # Убираем ведущий слэш если есть
+        if screenshot_path.startswith("/"):
+            full_path_str = screenshot_path[1:]
+        
         # Если путь в старом формате (без "screenshots/"), добавляем префикс
         # Старый: "6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
         # Новый: "screenshots/6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
-        if not screenshot_path.startswith("screenshots/"):
-            full_path_str = f"screenshots/{screenshot_path}"
+        if not full_path_str.startswith("screenshots/"):
+            full_path_str = f"screenshots/{full_path_str}"
         
         full_path = Path("/data") / full_path_str
         

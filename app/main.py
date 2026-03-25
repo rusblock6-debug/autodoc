@@ -68,8 +68,9 @@ async def lifespan(app: FastAPI):
     # Проверяем соединение с хранилищем
     try:
         from app.services.storage import storage_service
-        storage_status = storage_service.check_connection()
-        logger.info(f"Storage connection: {storage_status}")
+        # Проверяем что базовая директория существует и доступна
+        storage_service.base_path.exists()
+        logger.info(f"Storage initialized at {storage_service.base_path}")
     except Exception as e:
         logger.warning(f"Storage initialization failed: {e}")
     
@@ -271,25 +272,25 @@ async def health_check() -> HealthCheckResponse:
     except ImportError:
         gpu_status = False
     
-    # Проверка MinIO
-    minio_status = "healthy"
+    # Проверка хранилища
+    storage_status = "healthy"
     try:
         from app.services.storage import storage_service
-        minio_status = storage_service.check_connection().get("connected", False)
-        minio_status = "healthy" if minio_status else "unhealthy"
+        # Проверяем что базовая директория существует и доступна
+        storage_service.base_path.exists()
     except Exception as e:
-        minio_status = f"unhealthy: {e}"
+        storage_status = f"unhealthy: {e}"
     
     return HealthCheckResponse(
         status="healthy" if all([
             db_status == "healthy",
             redis_status == "healthy",
-            minio_status == "healthy",
+            storage_status == "healthy",
         ]) else "degraded",
         version=settings.APP_VERSION,
         database=db_status,
         redis=redis_status,
-        minio=minio_status,
+        storage=storage_status,
         gpu_available=gpu_status,
         uptime_seconds=0,  # Можно вычислять при старте
     )

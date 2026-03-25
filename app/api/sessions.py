@@ -84,13 +84,13 @@ async def upload_session(
         screenshot_paths = []
         
         try:
-            from app.services.storage import storage_service, StorageBucket
+            from app.services.storage import storage_service, StorageType
             
             if video and video.filename:
                 result = storage_service.upload_file(
                     video.file,
                     video.filename,
-                    StorageBucket.UPLOADS,
+                    StorageType.UPLOADS,
                     content_type=video.content_type or "video/webm",
                     subfolder=session_uuid
                 )
@@ -101,7 +101,7 @@ async def upload_session(
                 result = storage_service.upload_file(
                     audio.file,
                     audio.filename,
-                    StorageBucket.UPLOADS,
+                    StorageType.AUDIO,
                     content_type=audio.content_type or "audio/wav",
                     subfolder=session_uuid
                 )
@@ -322,11 +322,11 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
         from app.services.storage import storage_service, StorageBucket
         
         if session.video_path:
-            storage_service.delete_file(session.video_path, StorageBucket.UPLOADS)
+            storage_service.delete_file(session.video_path, StorageType.UPLOADS)
         if session.audio_path:
-            storage_service.delete_file(session.audio_path, StorageBucket.UPLOADS)
+            storage_service.delete_file(session.audio_path, StorageType.AUDIO)
         if session.clicks_log_path:
-            storage_service.delete_file(session.clicks_log_path, StorageBucket.UPLOADS)
+            storage_service.delete_file(session.clicks_log_path, StorageType.UPLOADS)
     except Exception as e:
         logger.warning(f"Could not delete files: {e}")
     

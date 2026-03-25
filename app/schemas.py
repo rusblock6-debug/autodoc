@@ -487,7 +487,7 @@ class HealthCheckResponse(BaseModel):
     version: str
     database: str
     redis: str
-    minio: str
+    storage: str
     gpu_available: bool
     uptime_seconds: int
 

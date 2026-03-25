@@ -31,7 +31,7 @@ from app.schemas import (
 from app.services.ai_service import ai_service
 from app.services.tts_service import tts_service, TTSEngine
 from app.services.video_processor import video_processor
-from app.services.storage import storage_service, StorageBucket
+from app.services.storage import storage_service, StorageType
 
 
 logger = logging.getLogger(__name__)
@@ -214,7 +214,7 @@ async def render_video_with_steps(
         try:
             upload_result = storage_service.upload_local_file(
                 file_path=output_path,
-                bucket=StorageBucket.VIDEOS,
+                bucket=StorageType.VIDEOS,
                 guide_id=guide_id,
                 subfolder="processed",
             )
@@ -487,7 +487,7 @@ async def generate_wiki(
         
         upload_result = storage_service.upload_local_file(
             file_path=temp_path,
-            bucket=StorageBucket.WIKI,
+            bucket=StorageType.WIKI,
             guide_id=guide_id,
             subfolder="wiki",
         )

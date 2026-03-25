@@ -8,7 +8,8 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Response
+from fastapi.responses import FileResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -26,7 +27,7 @@ from app.schemas import (
     PaginatedResponse,
     ErrorResponse,
 )
-from app.services.storage import storage_service, StorageBucket
+from app.services.storage import storage_service, StorageType
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,37 @@ async def list_guides(
         total_pages=total_pages,
         has_next=page < total_pages,
         has_previous=page > 1,
+    )
+
+
+@router.get("/screenshots/{screenshot_path:path}")
+async def get_screenshot(screenshot_path: str):
+    """
+    Отдача скриншота по пути.
+    Путь вида: /screenshots/{session_uuid}/{filename}
+    """
+    # Убираем ведущий слэш если есть
+    if screenshot_path.startswith("/"):
+        screenshot_path = screenshot_path[1:]
+    
+    # Полный путь к файлу
+    from pathlib import Path
+    file_path = Path("/data") / screenshot_path
+    
+    # Проверяем существование
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    
+    # Проверяем что это в директории screenshots (безопасность)
+    if "screenshots" not in str(file_path):
+        raise HTTPException(status_code=400, detail="Invalid screenshot path")
+    
+    return FileResponse(
+        str(file_path),
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=31536000",
+        }
     )
 
 
@@ -288,12 +320,12 @@ async def delete_guide(
         if guide.processed_video_path:
             storage_service.delete_file(
                 guide.processed_video_path,
-                StorageBucket.VIDEOS,
+                StorageType.VIDEOS,
             )
         if guide.wiki_markdown_path:
             storage_service.delete_file(
                 guide.wiki_markdown_path,
-                StorageBucket.WIKI,
+                StorageType.WIKI,
             )
     except Exception as e:
         logger.warning(f"Failed to delete files: {e}")
@@ -452,7 +484,7 @@ async def add_screenshot(
     try:
         upload_result = storage_service.upload_local_file(
             file_path=file_path,
-            bucket=StorageBucket.SCREENSHOTS,
+            bucket=StorageType.SCREENSHOTS,
             guide_id=guide_id,
             subfolder="screenshots",
         )
