@@ -108,13 +108,6 @@ async def generate_shorts(
         )
         
         if result.success:
-            # Загружаем результат в MinIO
-            output_key = f"guides/{guide.uuid}/shorts.mp4"
-            await storage_service.upload_file_path(
-                result.output_path,
-                output_key
-            )
-            
             # Обновляем гайд
             guide.status = GuideStatus.COMPLETED
             guide.shorts_video_path = output_key
@@ -204,17 +197,19 @@ async def download_shorts(
     if guide.status != GuideStatus.COMPLETED:
         raise HTTPException(status_code=400, detail=f"Guide status: {guide.status}")
     
-    # Генерируем presigned URL
-    download_url = await storage_service.generate_download_url(
-        guide.shorts_video_path,
-        expiry_seconds=3600  # 1 час
-    )
+    # Возвращаем путь к локальному файлу
+    from pathlib import Path
+    video_path = Path("/data") / guide.shorts_video_path
     
-    return {
-        "download_url": download_url,
-        "expires_in": 3600,
-        "filename": f"{guide.title}.mp4"
-    }
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        str(video_path),
+        media_type="video/mp4",
+        filename=f"{guide.title}.mp4"
+    )
 
 
 @router.get("/preview/{guide_id}")
@@ -245,10 +240,8 @@ async def preview_shorts_segments(
         # Получаем URL скриншота
         screenshot_url = None
         if step.screenshot_path:
-            screenshot_url = await storage_service.generate_download_url(
-                step.screenshot_path,
-                expiry_seconds=3600
-            )
+            # Используем endpoint для скриншотов
+            screenshot_url = f"/api/v1/guides/screenshots{step.screenshot_path}"
         
         # Предварительная длительность TTS
         estimated_duration = _estimate_tts_duration(step.final_text)

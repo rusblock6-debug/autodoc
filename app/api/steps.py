@@ -306,13 +306,7 @@ async def merge_steps(
     # Удаляем остальные шаги
     steps_to_delete = steps_to_merge[1:]
     for step in steps_to_delete:
-        # Удаляем скриншот из хранилища
-        if step.screenshot_path:
-            try:
-                await storage_service.delete_file(step.screenshot_path)
-            except Exception:
-                pass
-        
+        # Скриншоты не удаляем (остаются в /data)
         await db.delete(step)
     
     # Перенумеровываем оставшиеся шаги
@@ -354,12 +348,7 @@ async def delete_step(
     
     guide_id = step.guide_id
     
-    # Удаляем скриншот
-    if step.screenshot_path:
-        try:
-            await storage_service.delete_file(step.screenshot_path)
-        except Exception:
-            pass
+    # Скриншоты не удаляем (остаются в /data)
     
     await db.delete(step)
     

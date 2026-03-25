@@ -125,7 +125,7 @@ app = FastAPI(
 - **Backend**: Python (FastAPI)
 - **Database**: PostgreSQL
 - **Queue**: Redis (Celery)
-- **Storage**: MinIO (S3-compatible)
+- **Storage**: Локальное файловое хранилище (/data)
     """,
     version=settings.APP_VERSION,
     docs_url="/docs",
@@ -241,7 +241,7 @@ async def health_check() -> HealthCheckResponse:
     Возвращает статус всех компонентов системы:
     - Database: Подключение к PostgreSQL
     - Redis: Подключение к Redis
-    - MinIO: Подключение к хранилищу
+    - Storage: Локальное хранилище (/data)
     - GPU: Доступность GPU
     """
     from app.database import engine

@@ -180,7 +180,6 @@ class ScreenshotResponse(BaseModel):
     guide_id: int
     step_id: Optional[int] = None
     file_path: str
-    minio_key: str
     width: int
     height: int
     video_timestamp: Optional[float] = None
@@ -434,30 +433,6 @@ class ShortsGenerationResponse(BaseModel):
     file_size_bytes: Optional[int] = None
     generated_at: datetime
     error: Optional[str] = None
-
-
-# ===================== Storage Schemas =====================
-
-class PresignedUrlRequest(BaseModel):
-    """Запрос на создание presigned URL для загрузки."""
-    file_name: str = Field(..., description="Имя файла")
-    content_type: str = Field(..., description="MIME-тип файла")
-    guide_id: Optional[int] = None
-    bucket: str = Field(default="uploads", description="Бакет для загрузки")
-
-
-class PresignedUrlResponse(BaseModel):
-    """Ответ с presigned URL."""
-    upload_url: str
-    file_key: str
-    expires_in: int  # секунды
-    method: str = "PUT"
-
-
-class DownloadUrlResponse(BaseModel):
-    """Ответ с URL для скачивания."""
-    download_url: str
-    expires_in: int  # секунды
 
 
 # ===================== Pagination =====================

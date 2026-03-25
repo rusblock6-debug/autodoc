@@ -315,21 +315,6 @@ async def delete_guide(
             detail=f"Guide with id {guide_id} not found",
         )
     
-    # Удаляем связанные файлы из хранилища
-    try:
-        if guide.processed_video_path:
-            storage_service.delete_file(
-                guide.processed_video_path,
-                StorageType.VIDEOS,
-            )
-        if guide.wiki_markdown_path:
-            storage_service.delete_file(
-                guide.wiki_markdown_path,
-                StorageType.WIKI,
-            )
-    except Exception as e:
-        logger.warning(f"Failed to delete files: {e}")
-    
     await db.delete(guide)
     await db.commit()
     
@@ -512,11 +497,6 @@ async def add_screenshot(
     # )
     # 
     # db.add(screenshot)
-    # await db.commit()
-    # await db.refresh(screenshot)
-    # 
-    # logger.info(f"Added screenshot {screenshot.id} to guide {guide_id}")
-    
     return ScreenshotResponse.model_validate(screenshot)
 
 

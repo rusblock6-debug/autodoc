@@ -317,19 +317,6 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    # Удаляем файлы из MinIO если есть
-    try:
-        from app.services.storage import storage_service, StorageBucket
-        
-        if session.video_path:
-            storage_service.delete_file(session.video_path, StorageType.UPLOADS)
-        if session.audio_path:
-            storage_service.delete_file(session.audio_path, StorageType.AUDIO)
-        if session.clicks_log_path:
-            storage_service.delete_file(session.clicks_log_path, StorageType.UPLOADS)
-    except Exception as e:
-        logger.warning(f"Could not delete files: {e}")
-    
     # Удаляем из БД (cascade удалит связанный гайд и шаги)
     await db.delete(session)
     await db.commit()
