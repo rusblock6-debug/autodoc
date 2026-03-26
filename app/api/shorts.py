@@ -36,7 +36,6 @@ async def generate_shorts(
     
     Request body (optional):
     {
-        "tts_voice": "ru-RU-SvetlanaNeural",
         "add_intro": true,
         "intro_text": "Как создать документ"
     }
@@ -104,7 +103,7 @@ async def generate_shorts(
                 for s in steps
             ],
             guide_uuid=guide.uuid,
-            tts_voice=body.get("tts_voice", guide.tts_voice)
+            # tts_voice не используется (Chatterbox всегда neutral)
         )
         
         if result.success:

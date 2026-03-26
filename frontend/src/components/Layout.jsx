@@ -16,6 +16,7 @@ function Layout() {
   const fetchGuides = async () => {
     try {
       const response = await guidesApi.getAll()
+      console.log('[Layout] Fetched guides:', response)
       setGuides(response.items || response || [])
     } catch (error) {
       console.error('Failed to fetch guides:', error)

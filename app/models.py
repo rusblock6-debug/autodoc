@@ -56,7 +56,7 @@ class RecordingSession(Base):
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     click_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
-    # Пути к файлам (MinIO keys)
+    # Пути к файлам (локальное хранилище)
     video_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     audio_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     clicks_log_path: Mapped[str] = mapped_column(String(1000), nullable=False)
@@ -114,8 +114,8 @@ class Guide(Base):
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
-    # TTS настройки
-    tts_voice: Mapped[str] = mapped_column(String(100), default="ru-RU-SvetlanaNeural")
+    # TTS настройки (Chatterbox использует нейтральную эмоцию по умолчанию)
+    tts_voice: Mapped[str] = mapped_column(String(100), default="neutral", nullable=False)
     
     # Результаты
     shorts_video_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)

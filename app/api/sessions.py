@@ -35,6 +35,7 @@ async def upload_session(
     click_count: Optional[int] = Form(None),
     db: AsyncSession = Depends(get_db)
 ):
+    logger.info(f"Upload: {title}, Screenshots: {len(screenshots)}, Clicks: {click_count}")
     """
     Загрузить сессию записи.
     
@@ -55,7 +56,6 @@ async def upload_session(
     
     try:
         logger.info(f"Creating session {session_uuid}, screenshots: {len(screenshots)}")
-        logger.info(f"Session title: {title}")
         
         # Парсим лог кликов если есть
         clicks_data = []
@@ -111,10 +111,10 @@ async def upload_session(
             # Сохраняем скриншоты ЛОКАЛЬНО (без MinIO)
             import shutil
             from pathlib import Path
-                        
+            
             screenshots_dir = Path("/data/screenshots") / session_uuid
             screenshots_dir.mkdir(parents=True, exist_ok=True)
-                        
+            
             for i, screenshot in enumerate(screenshots):
                 if screenshot and screenshot.filename:
                     # Сохраняем локально
@@ -125,7 +125,6 @@ async def upload_session(
                                 
                     # В БД пишем относительный путь
                     screenshot_paths.append(f"screenshots/{session_uuid}/screenshot_{i}.png")
-                    logger.info(f"Screenshot {i} saved locally: {screenshot_paths[-1]}")
                 
         except Exception as e:
             logger.warning(f"Storage upload failed (continuing without files): {e}")
@@ -147,52 +146,58 @@ async def upload_session(
         await db.commit()
         await db.refresh(session)
         
-        logger.info(f"Session {session_uuid} created with {session.click_count} clicks")
+        logger.info(f"Session {session_uuid} created: {session.click_count} clicks, {len(screenshot_paths)} screenshots")
         
-        # Создаём гайд сразу (без AI обработки для MVP)
-        # UUID гайда = UUID сессии для простоты
-        guide = Guide(
-            uuid=session_uuid,  # Используем тот же UUID что и у сессии
-            session_id=session.id,
-            title=session.title,
-            language="ru",
-            status=GuideStatus.DRAFT,
-            created_at=datetime.utcnow()
-        )
-        db.add(guide)
-        await db.commit()
-        await db.refresh(guide)
-        
-        logger.info(f"Created guide {guide.uuid} with title: {guide.title}")
-        
-        # Создаём шаги из кликов
-        for i, click in enumerate(clicks_data):
-            # Получаем путь к скриншоту если есть
-            screenshot_path = screenshot_paths[i] if i < len(screenshot_paths) else ""
-            
-            step = GuideStep(
-                guide_id=guide.id,
-                step_number=i + 1,
-                click_timestamp=click.get('timestamp', 0),
-                click_x=click.get('x', 0),
-                click_y=click.get('y', 0),
-                screenshot_path=screenshot_path,
-                screenshot_width=click.get('viewport_width', 1920),
-                screenshot_height=click.get('viewport_height', 1080),
-                raw_speech=click.get('element_text') or click.get('text') or "",
-                normalized_text=f"Шаг {i+1}: Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
+        try:
+            # Создаём гайд сразу (без AI обработки для MVP)
+            # UUID гайда = UUID сессии для простоты
+            guide = Guide(
+                uuid=session_uuid,  # Используем тот же UUID что и у сессии
+                session_id=session.id,
+                title=session.title,
+                language="ru",
+                status=GuideStatus.DRAFT,
                 created_at=datetime.utcnow()
             )
-            db.add(step)
+            db.add(guide)
+            await db.commit()
+            await db.refresh(guide)
+            
+            logger.info(f"Created guide {guide.uuid} (ID: {guide.id})")
+            
+            # Создаём шаги из кликов
+            for i, click in enumerate(clicks_data):
+                # Получаем путь к скриншоту если есть
+                screenshot_path = screenshot_paths[i] if i < len(screenshot_paths) else ""
+                
+                step = GuideStep(
+                    guide_id=guide.id,
+                    step_number=i + 1,
+                    click_timestamp=click.get('timestamp', 0),
+                    click_x=click.get('x', 0),
+                    click_y=click.get('y', 0),
+                    screenshot_path=screenshot_path,
+                    screenshot_width=click.get('viewport_width', 1920),
+                    screenshot_height=click.get('viewport_height', 1080),
+                    raw_speech=click.get('element_text') or click.get('text') or "",
+                    normalized_text=f"Шаг {i+1}: Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
+                    created_at=datetime.utcnow()
+                )
+                db.add(step)
+            
+            await db.commit()
+            
+            # Обновляем статус сессии
+            session.status = SessionStatus.COMPLETED
+            session.processing_completed_at = datetime.utcnow()
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Guide creation error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise
         
-        await db.commit()
-        
-        # Обновляем статус сессии
-        session.status = SessionStatus.COMPLETED
-        session.processing_completed_at = datetime.utcnow()
-        await db.commit()
-        
-        logger.info(f"Session {session_uuid} completed with guide {guide.uuid}")
+        logger.info(f"Session {session_uuid} → Guide {guide.uuid}")
         
         return {
             "success": True,

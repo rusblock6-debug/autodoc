@@ -363,7 +363,6 @@ async def get_current_user_with_guides(
 async def update_current_user(
     full_name: Optional[str] = None,
     preferred_language: str = "ru",
-    preferred_tts_voice: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
@@ -374,9 +373,7 @@ async def update_current_user(
         current_user.full_name = full_name
     
     current_user.preferred_language = preferred_language
-    
-    if preferred_tts_voice is not None:
-        current_user.preferred_tts_voice = preferred_tts_voice
+    # preferred_tts_voice удалено - Chatterbox не требует выбора голоса
     
     await db.commit()
     await db.refresh(current_user)

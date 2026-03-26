@@ -19,8 +19,6 @@ from app.schemas import (
     GuideProcessingStatus,
     AIProcessingRequest,
     AIProcessingResult,
-    TextToSpeechRequest,
-    TextToSpeechResponse,
     WikiGenerationRequest,
     WikiContentResponse,
     ShortsGenerationRequest,
@@ -29,7 +27,6 @@ from app.schemas import (
     ErrorResponse,
 )
 from app.services.ai_service import ai_service
-from app.services.tts_service import tts_service, TTSEngine
 from app.services.video_processor import video_processor
 from app.services.storage import storage_service, StorageType
 
@@ -366,45 +363,6 @@ async def magic_edit(
         errors=[],
     )
 
-
-@router.post("/{guide_id}/tts", response_model=TextToSpeechResponse)
-async def regenerate_step_tts(
-    guide_id: int,
-    step_id: int,
-    tts_request: TextToSpeechRequest,
-    db: AsyncSession = Depends(get_db),
-) -> TextToSpeechResponse:
-    """
-    Перегенерация TTS для конкретного шага.
-    
-    Используется для предварительного прослушивания озвучки
-    перед применением изменений.
-    """
-    step = await db.get(GuideStep, step_id)
-    
-    if not step or step.guide_id != guide_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Step {step_id} not found in guide {guide_id}",
-        )
-    
-    text = tts_request.text or step.original_text
-    
-    result = await tts_service.generate_audio(
-        text=text,
-        voice=tts_request.voice or step.guide.tts_voice,
-        speed=tts_request.speed,
-        pitch=tts_request.pitch,
-    )
-    
-    return TextToSpeechResponse(
-        success=result.success,
-        audio_path=result.audio_path,
-        duration_seconds=result.duration_seconds,
-        error=result.error,
-    )
-
-
 @router.post("/{guide_id}/wiki", response_model=WikiContentResponse)
 async def generate_wiki(
     guide_id: int,
@@ -559,45 +517,6 @@ async def generate_shorts(
         generated_at=datetime.utcnow(),
         error="Not implemented yet",
     )
-
-
-@router.post("/tts/preview", response_model=TextToSpeechResponse)
-async def preview_tts(
-    request: TextToSpeechRequest,
-) -> TextToSpeechResponse:
-    """
-    Предпрослушивание TTS без сохранения.
-    
-    Позволяет проверить звучание голоса перед применением.
-    """
-    result = await tts_service.generate_audio(
-        text=request.text,
-        voice=request.voice,
-        speed=request.speed,
-        pitch=request.pitch,
-    )
-    
-    return TextToSpeechResponse(
-        success=result.success,
-        audio_path=result.audio_path,
-        duration_seconds=result.duration_seconds,
-        error=result.error,
-    )
-
-
-@router.get("/tts/voices")
-async def list_tts_voices(
-    engine: Optional[str] = Query(None, description="Фильтр по движку"),
-) -> List[dict]:
-    """
-    Получение списка доступных голосов TTS.
-    """
-    voices = tts_service.get_available_voices()
-    
-    if engine:
-        voices = [v for v in voices if v.get("engine") == engine]
-    
-    return voices
 
 
 # TODO: ProcessingJob model not implemented in MVP

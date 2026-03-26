@@ -5,7 +5,7 @@ AI Service - сервис для работы с нейросетями.
 AI Stack:
 - ASR: OpenAI Whisper (через Groq API или локально)
 - LLM: OpenRouter API (Llama 3.1, Gemma 2 - бесплатно)
-- TTS: Edge TTS / Coqui XTTS v2
+- TTS: Chatterbox TTS (нейронная озвучка с эмоциями)
 """
 
 import asyncio
@@ -792,7 +792,7 @@ class AIService:
     Объединяет:
     - WhisperASR для распознавания речи
     - LLMWrapper для логического анализа
-    - TTSService для озвучки (отдельный модуль)
+    - ChatterboxService для нейронной озвучки (отдельный модуль)
     """
     
     def __init__(self):

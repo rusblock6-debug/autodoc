@@ -15,9 +15,6 @@ psycopg2-binary>=2.9.9
 redis>=5.0.1
 celery>=5.3.6
 
-# === Object Storage ===
-minio>=7.2.0
-
 # === AI/ML ===
 # OpenAI SDK для API вызовов (OpenRouter, Groq)
 openai>=1.0.0
@@ -25,7 +22,7 @@ openai>=1.0.0
 # PyTorch (опционально - для локального Whisper)
 torch>=2.1.0
 torchaudio>=2.1.0
-numpy>=1.26.3
+# numpy удален - Chatterbox требует numpy<1.26.0, установится автоматически
 
 # OpenAI Whisper (локальный fallback)
 openai-whisper>=20231117
@@ -39,7 +36,8 @@ openai-whisper>=20231117
 huggingface-hub>=0.20.0
 
 # === TTS ===
-edge-tts>=6.1.1
+# Chatterbox TTS (нейронная озвучка с эмоциями)
+chatterbox-tts==0.1.6
 
 # === Video Processing ===
 moviepy>=1.0.3

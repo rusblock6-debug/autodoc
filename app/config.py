@@ -190,10 +190,9 @@ class Settings(BaseSettings):
     LLM_CONTEXT_SIZE: int = Field(default=4096, description="Контекстное окно локальной LLM")
     LLM_BATCH_SIZE: int = Field(default=512, description="Размер батча для локального инференса")
     
-    # TTS (Text-to-Speech)
-    TTS_ENGINE: str = Field(default="edge-tts", description="Движок TTS (edge-tts/coqui)")
-    EDGE_TTS_VOICE: str = Field(default="ru-RU-SvetlanaNeural", description="Голос для Edge TTS")
-    COQUI_MODEL_PATH: Optional[str] = Field(default=None, description="Путь к модели Coqui XTTS")
+    # === TTS (Text-to-Speech) ===
+    # Используется Chatterbox TTS - бесплатная нейронная озвучка с эмоциональной окраской
+    CHATTERBOX_EMOTION: str = Field(default="neutral", description="Эмоция для Chatterbox TTS")
     
     # === Настройки видеообработки ===
     VIDEO_OUTPUT_WIDTH: int = Field(default=1920, description="Ширина выходного видео")

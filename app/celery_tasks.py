@@ -150,7 +150,7 @@ def process_video(
         "video_key": video_key,
         "steps": steps_data,
         "options": options or {},
-        "output_bucket": settings.MINIO_BUCKET_VIDEOS,
+        # output_bucket удалён - используется локальное хранилище
     }
     
     return run_ai_subprocess("video_processing", task_id, payload)
@@ -172,7 +172,7 @@ def generate_shorts(
         "video_key": video_key,
         "target_platform": target_platform,
         "options": options or {},
-        "output_bucket": settings.MINIO_BUCKET_VIDEOS,
+        # output_bucket удалён - используется локальное хранилище
     }
     
     return run_ai_subprocess("shorts_generation", task_id, payload)

@@ -16,7 +16,6 @@ function ShortsPreview() {
   
   // Настройки генерации
   const [settings, setSettings] = useState({
-    voice: 'ru-RU-SvetlanaNeural',
     markerColor: '#FFEB3B',
     platform: 'tiktok',
   })
@@ -82,7 +81,6 @@ function ShortsPreview() {
     
     try {
       const response = await shortsApi.generate(guideId, {
-        voice: settings.voice,
         marker_color: settings.markerColor,
         target_platform: settings.platform,
       })
@@ -231,20 +229,14 @@ function ShortsPreview() {
           <div className="bg-gray-800 rounded-xl p-4">
             <h3 className="font-medium mb-4">Настройки генерации</h3>
             
-            {/* Voice */}
-            <div className="mb-4">
-              <label className="block text-sm text-gray-400 mb-2">Голос озвучки</label>
-              <select
-                value={settings.voice}
-                onChange={(e) => setSettings(s => ({ ...s, voice: e.target.value }))}
-                disabled={generating}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:ring-1 focus:ring-yellow-500 outline-none"
-              >
-                <option value="ru-RU-SvetlanaNeural">Светлана (женский)</option>
-                <option value="ru-RU-DmitryNeural">Дмитрий (мужской)</option>
-                <option value="en-US-JennyNeural">Jenny (English)</option>
-                <option value="en-US-GuyNeural">Guy (English)</option>
-              </select>
+            {/* Info about Chatterbox */}
+            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <p className="text-sm text-blue-300 flex items-center">
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Используется бесплатная нейронная озвучка Chatterbox TTS
+              </p>
             </div>
 
             {/* Platform */}
@@ -339,7 +331,7 @@ function ShortsPreview() {
                 <svg className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                TTS озвучка каждого шага
+                Нейронная TTS озвучка (Chatterbox)
               </li>
               <li className="flex items-start">
                 <svg className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

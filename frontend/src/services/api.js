@@ -118,7 +118,11 @@ export const storageApi = {
   getDownloadUrl: (fileKey) => api.get(`/storage/download-url`, { params: { key: fileKey } }),
   
   // Получить URL скриншота (теперь через guides endpoint)
-  getScreenshotUrl: (path) => `${API_BASE}/guides/screenshots${path}`,
+  getScreenshotUrl: (path) => {
+    // Убираем начальный слэш если есть, чтобы не было дублирования
+    const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+    return `${API_BASE}/guides/screenshots/${cleanPath}`;
+  },
 }
 
 export default api

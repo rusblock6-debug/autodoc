@@ -201,7 +201,7 @@ class GuideCreate(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Теги")
     asr_model: Optional[str] = Field(None, description="Модель ASR")
     llm_model: Optional[str] = Field(None, description="Модель LLM")
-    tts_voice: Optional[str] = Field(None, description="Голос TTS")
+    # tts_voice удалено - Chatterbox использует нейтральную эмоцию
 
 
 class GuideUpdate(BaseModel):
@@ -240,8 +240,8 @@ class GuideDetailResponse(BaseModel):
     status: str  # Используем str вместо enum для совместимости
     language: str = "ru"
     
-    # TTS настройки
-    tts_voice: str = "ru-RU-SvetlanaNeural"
+    # TTS настройки (Chatterbox - нейтральная эмоция)
+    # tts_voice удалено - не используется
     
     # Файлы
     shorts_video_path: Optional[str] = None
@@ -356,7 +356,7 @@ class AIProcessingRequest(BaseModel):
         default_factory=list, 
         description="ID шагов для перегенерации"
     )
-    tts_voice: Optional[str] = None
+    # tts_voice удалено - Chatterbox использует нейтральную эмоцию
     smart_align: bool = Field(default=True, description="Включить умную синхронизацию")
 
 

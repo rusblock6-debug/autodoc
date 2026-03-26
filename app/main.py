@@ -101,7 +101,7 @@ app = FastAPI(
 ### Базовый (Must Have)
 - **Захват экрана** через веб-расширение
 - **Авто-зум** на области кликов с использованием FFmpeg
-- **AI-озвучка** с поддержкой Edge TTS и Coqui XTTS
+- **AI-озвучка** с использованием Chatterbox TTS (нейронная)
 - **Библиотека гайдов** с поиском и тегами
 
 ### Расширенный (Innovation)
@@ -117,7 +117,7 @@ app = FastAPI(
 |-----------|------------|
 | ASR | OpenAI Whisper Large v3 |
 | LLM | Qwen 2.5 (72B) / Llama 3.1 (70B) |
-| TTS | Edge TTS / Coqui XTTS v2 |
+| TTS | Chatterbox TTS (Neural) |
 | Video | FFmpeg |
 
 ## Архитектура

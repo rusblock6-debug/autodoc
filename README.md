@@ -101,8 +101,8 @@ docker-compose up -d
 │         ┌──────────────────────┼──────────────────────┐             │
 │         ▼                      ▼                      ▼             │
 │  ┌─────────────┐      ┌─────────────┐      ┌────────────────┐      │
-│  │ PostgreSQL  │      │    MinIO    │      │   Local AI     │      │
-│  │ (Guides)    │      │ (S3 Storage)│      │   Models       │      │
+│  │ PostgreSQL  │      │   Local FS  │      │   Local AI     │      │
+│  │ (Guides)    │      │ (Files)     │      │   Models       │      │
 │  └─────────────┘      └─────────────┘      └────────────────┘      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -111,14 +111,14 @@ docker-compose up -d
 
 ### Базовые технологии
 
-Платформа использует современный стек технологий для обеспечения производительности и удобства разработки. FastAPI служит основным веб-фреймворком, обеспечивая высокую скорость работы, автоматическую валидацию данных через Pydantic и встроенную генерацию документации Swagger и OpenAPI. PostgreSQL используется для хранения всех данных о гайдах, шагах и сессиях записи. MinIO предоставляет S3-совместимое объектное хранилище для видео, аудио и извлечённых скриншотов. Redis работает как брокер задач Celery для асинхронной обработки AI-операций.
+Платформа использует современный стек технологий для обеспечения производительности и удобства разработки. FastAPI служит основным веб-фреймворком, обеспечивая высокую скорость работы, автоматическую валидацию данных через Pydantic и встроенную генерацию документации Swagger и OpenAPI. PostgreSQL используется для хранения всех данных о гайдах, шагах и сессиях записи. **Локальное файловое хранилище** хранит видео, аудио и извлечённые скриншоты напрямую в файловой системе. Redis работает как брокер задач Celery для асинхронной обработки AI-операций.
 
 | Компонент | Технология | Назначение |
 |-----------|------------|------------|
 | **Backend** | FastAPI + Python 3.10 | REST API, бизнес-логика |
 | **Database** | PostgreSQL 15 | Хранение гайдов, шагов, сессий |
 | **Queue** | Redis 7 + Celery | Фоновая обработка AI-задач |
-| **Storage** | MinIO (S3) | Видео, аудио, скриншоты |
+| **Storage** | Local File System | Видео, аудио, скриншоты в `/data` |
 | **Browser Extension** | Chrome Extension | Запись экрана, кликов, аудио |
 
 ### AI/ML технологии (локальные)
@@ -129,7 +129,7 @@ docker-compose up -d
 |-----------|--------|--------|------------|
 | **ASR** | OpenAI Whisper (medium) | PyTorch CUDA | Распознавание речи → текст + таймкоды |
 | **LLM** | Qwen 2.5 7B / Llama 3.1 8B | GGUF (llama-cpp) | Нормализация речи в инструкции |
-| **TTS** | Edge TTS / локальный | API / Local | Озвучка шагов для Shorts |
+| **TTS** | Chatterbox v0.1.6 | Local | Эмоциональная озвучка шагов для Shorts |
 | **Video** | FFmpeg | CUDA | Извлечение скриншотов, сборка Shorts |
 
 ### Требования к инфраструктуре
@@ -212,11 +212,10 @@ curl http://localhost:8000/health
   "status": "healthy",
   "database": "connected",
   "redis": "connected",
-  "minio": "connected",
   "gpu_available": true
 }
 
-Документация API доступна по адресу http://localhost:8000/docs
+Документация API доступна по адресу http://localhost:8888/docs
 
 ### Доступ к сервисам
 
@@ -224,8 +223,9 @@ curl http://localhost:8000/health
 |--------|-----|----------------|
 | **API** | http://localhost:8888 | — |
 | **Swagger Docs** | http://localhost:8888/docs | — |
-| **MinIO Console** | http://localhost:9001 | minioadmin / minioadmin |
 | **pgAdmin** | http://localhost:5050 | admin@autodoc.local / admin |
+
+**Примечание**: Файлы хранятся локально в директории `/data`
 
 ## Конфигурация
 
@@ -260,14 +260,9 @@ REDIS_DB=0
 REDIS_URL=redis://redis:6379/0
 
 # =============================================================================
-# MINIO S3 STORAGE
+# ЛОКАЛЬНОЕ ХРАНИЛИЩЕ
 # =============================================================================
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET_VIDEOS=autodoc-videos
-MINIO_BUCKET_SCREENSHOTS=autodoc-screenshots
-MINIO_BUCKET_UPLOADS=autodoc-uploads
+STORAGE_BASE_PATH=/data  # Путь к локальному хранилищу
 
 # =============================================================================
 # AI MODELS - ПОЛНОСТЬЮ ЛОКАЛЬНЫЕ (ПРИВАТНОСТЬ!)
@@ -565,7 +560,7 @@ autodoc_ai/
 
 ### Шаг 2: Загрузка и хранение
 
-Бэкенд принимает загруженные файлы, сохраняет их в MinIO и создаёт запись сессии в PostgreSQL с метаданными, включая длительность, количество кликов и статус обработки.
+Бэкенд принимает загруженные файлы, сохраняет их локально в `/data` и создаёт запись сессии в PostgreSQL с метаданными, включая длительность, количество кликов и статус обработки.
 
 ### Шаг 3: ASR — распознавание речи
 
@@ -722,8 +717,8 @@ ls -la data/models/
 ПРИВАТНОСТЬ (всё локально):
 ├── Whisper (PyTorch CUDA)              Локально
 ├── Qwen/Llama (llama-cpp-python GGUF)  Локально
-├── Edge TTS (опционально)              Требует интернет
-├── MinIO (S3)                          Локально
+├── Chatterbox TTS                      Локально
+├── Local File Storage                  Локально
 ├── PostgreSQL                          Локально
 └── Внешние API (OpenAI, Anthropic)     Не используются
 ```
@@ -740,9 +735,9 @@ source venv/bin/activate
 # 2. Установите зависимости
 pip install -r requirements.txt
 
-# 3. Запустите внешние сервисы (PostgreSQL, Redis, MinIO)
+# 3. Запустите внешние сервисы (PostgreSQL, Redis)
 #    или используйте docker-compose для них:
-docker-compose up -d postgres redis minio
+docker-compose up -d postgres redis
 
 # 4. Запустите приложение
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

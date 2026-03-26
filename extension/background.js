@@ -235,14 +235,43 @@ async function handleClickLog(data, sender) {
   recordingState.clickLog.push(clickEntry);
   console.log(`[НИР-Документ] Click #${clickIndex + 1}: ${data.tagName} at ${data.x},${data.y} on tab ${tabId}`);
   
-  // Делаем скриншот активной вкладки
+  // Делаем скриншот вкладки, где произошёл клик
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab?.windowId, {
-      format: 'png',
-      quality: 90
-    });
-    recordingState.screenshots[clickIndex] = dataUrl;
-    console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} OK`);
+    if (tabId && sender.tab) {
+      // Проверяем, активна ли вкладка
+      const tab = await chrome.tabs.get(tabId);
+      
+      if (tab.active) {
+        // Вкладка активна - делаем скриншот сразу
+        const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, {
+          format: 'png',
+          quality: 90
+        });
+        recordingState.screenshots[clickIndex] = dataUrl;
+        console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} OK (active tab)`);
+      } else {
+        // Вкладка неактивна - временно активируем её
+        const originalTab = await chrome.tabs.query({ active: true, windowId: sender.tab.windowId });
+        
+        await chrome.tabs.update(tabId, { active: true });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, {
+          format: 'png',
+          quality: 90
+        });
+        recordingState.screenshots[clickIndex] = dataUrl;
+        
+        // Возвращаемся на исходную вкладку
+        if (originalTab[0]) {
+          await chrome.tabs.update(originalTab[0].id, { active: true });
+        }
+        
+        console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} OK (switched tab)`);
+      }
+    } else {
+      throw new Error('No tab info');
+    }
   } catch (e) {
     console.log(`[НИР-Документ] Screenshot #${clickIndex + 1} failed:`, e.message);
     recordingState.screenshots[clickIndex] = null;

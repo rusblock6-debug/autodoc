@@ -204,7 +204,7 @@ async def create_guide(
         # tags=guide_data.tags or [],  # TODO: Not in MVP model
         # asr_model=guide_data.asr_model or "large-v3",  # TODO: Not in MVP model
         # llm_model=guide_data.llm_model or "Qwen/Qwen2.5-72B-Instruct",  # TODO: Not in MVP model
-        tts_voice=guide_data.tts_voice or "ru-RU-SvetlanaNeural",
+        # tts_voice удалено - Chatterbox использует нейтральную эмоцию по умолчанию
         status=GuideStatus.DRAFT,
     )
     
@@ -266,7 +266,7 @@ async def update_guide(
         "title": guide.title,
         "status": guide.status.value if hasattr(guide.status, 'value') else str(guide.status),
         "language": guide.language,
-        "tts_voice": guide.tts_voice,
+        # "tts_voice": guide.tts_voice,  # Удалено - Chatterbox не требует выбора голоса
         "shorts_video_path": guide.shorts_video_path,
         "shorts_duration_seconds": guide.shorts_duration_seconds,
         "created_at": guide.created_at,

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.config import settings
-from app.services.tts_service import tts_service
+from app.services.chatterbox_service import ChatterboxService
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,6 @@ class ShortsGenerator:
         self,
         steps: List[Dict[str, Any]],
         guide_uuid: str,
-        tts_voice: str = "ru-RU-SvetlanaNeural",
         intro_text: Optional[str] = None
     ) -> ShortsResult:
         """
@@ -85,7 +84,6 @@ class ShortsGenerator:
         Args:
             steps: Список шагов (из БД)
             guide_uuid: UUID гайда для именования файлов
-            tts_voice: Голос для озвучки
             intro_text: Текст интро (опционально)
             
         Returns:
@@ -95,6 +93,10 @@ class ShortsGenerator:
         
         segments = []
         temp_files = []  # Для очистки
+        
+        # Инициализируем Chatterbox сервис
+        from app.services.chatterbox_service import ChatterboxService
+        tts_service = ChatterboxService()
         
         try:
             # 1. Генерируем TTS и подготавливаем сегменты
@@ -106,27 +108,18 @@ class ShortsGenerator:
                 # Формируем полный текст для озвучки
                 full_text = f"Шаг {step.get('step_number', i+1)}. {text}"
                 
-                # Генерируем TTS
-                tts_result = await tts_service.generate_audio(
-                    text=full_text,
-                    voice=tts_voice
-                )
+                # Генерируем TTS через Chatterbox (синхронный вызов)
+                tts_audio_path = tts_service.synthesize(text=full_text)
+                temp_files.append(tts_audio_path)
                 
-                if not tts_result.success:
-                    logger.warning(f"TTS failed for step {i+1}: {tts_result.error}")
-                    # Используем тишину или дефолтный звук
-                    tts_audio_path = ""
-                    duration = 3.0  # Минимум 3 секунды на шаг
-                else:
-                    tts_audio_path = tts_result.audio_path
-                    duration = tts_result.duration_seconds or 3.0
-                    temp_files.append(tts_audio_path)
+                # Получаем длительность аудио
+                duration = tts_service.get_audio_duration(tts_audio_path) or 3.0
                 
                 segment = ShortsSegment(
-                    step_number=step.get("step_number", i+1),
-                    screenshot_path=step.get("screenshot_path", ""),
-                    marker_x=step.get("click_x", 0),
-                    marker_y=step.get("click_y", 0),
+                    step_number=step.get('step_number', i+1),
+                    screenshot_path=step.get('screenshot_path', ''),
+                    marker_x=step.get('click_x', 0),
+                    marker_y=step.get('click_y', 0),
                     text=text,
                     tts_audio_path=tts_audio_path,
                     duration_seconds=max(duration, 2.0)  # Минимум 2 секунды
