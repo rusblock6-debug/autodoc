@@ -8,8 +8,6 @@ function ShortsPreview() {
   const [guide, setGuide] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [taskId, setTaskId] = useState(null)
-  const [progress, setProgress] = useState(0)
   const [progressMessage, setProgressMessage] = useState('')
   const [videoUrl, setVideoUrl] = useState(null)
   const [error, setError] = useState(null)
@@ -24,14 +22,6 @@ function ShortsPreview() {
     fetchGuide()
   }, [guideId])
 
-  useEffect(() => {
-    let interval
-    if (taskId && generating) {
-      interval = setInterval(checkProgress, 1500)
-    }
-    return () => clearInterval(interval)
-  }, [taskId, generating])
-
   const fetchGuide = async () => {
     try {
       const data = await guidesApi.getByUuid(guideId)
@@ -39,37 +29,13 @@ function ShortsPreview() {
       
       // Если Shorts уже сгенерирован, показываем его
       if (data.shorts_video_path && data.id) {
-        const preview = await shortsApi.getPreview(data.id)
-        setVideoUrl(preview.url)
+        const videoUrl = `/api/v1/shorts/download/${data.id}`
+        setVideoUrl(videoUrl)
       }
     } catch (error) {
       setError(error.response?.data?.detail || 'Не удалось загрузить гайд')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const checkProgress = async () => {
-    try {
-      const status = await shortsApi.getStatus(taskId)
-      setProgress(status.progress || 0)
-      setProgressMessage(status.message || '')
-      
-      if (status.status === 'completed') {
-        setGenerating(false)
-        setTaskId(null)
-        if (guide?.id) {
-          const preview = await shortsApi.getPreview(guide.id)
-          setVideoUrl(preview.url)
-        }
-        fetchGuide()
-      } else if (status.status === 'failed') {
-        setGenerating(false)
-        setTaskId(null)
-        setError(status.error || 'Ошибка генерации')
-      }
-    } catch (error) {
-      // Игнорируем ошибки проверки статуса
     }
   }
 
@@ -81,15 +47,18 @@ function ShortsPreview() {
     
     setGenerating(true)
     setError(null)
-    setProgress(0)
-    setProgressMessage('Запуск генерации...')
+    setProgressMessage('Генерация видео...')
     
     try {
       const response = await shortsApi.generate(guide.id, {
         marker_color: settings.markerColor,
         target_platform: settings.platform,
       })
-      setTaskId(response.task_id)
+      
+      // Генерация завершена успешно
+      setGenerating(false)
+      await fetchGuide() // Обновляем данные гайда
+      
     } catch (error) {
       setError(error.response?.data?.detail || 'Не удалось запустить генерацию')
       setGenerating(false)
@@ -163,33 +132,8 @@ function ShortsPreview() {
               />
             ) : generating ? (
               <div className="text-center p-8">
-                <div className="w-16 h-16 mx-auto mb-4 relative">
-                  <svg className="w-16 h-16 transform -rotate-90">
-                    <circle
-                      cx="32"
-                      cy="32"
-                      r="28"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                      className="text-gray-700"
-                    />
-                    <circle
-                      cx="32"
-                      cy="32"
-                      r="28"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                      strokeDasharray={176}
-                      strokeDashoffset={176 - (176 * progress) / 100}
-                      className="text-yellow-500 transition-all duration-300"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-sm font-bold">
-                    {progress}%
-                  </span>
+                <div className="w-16 h-16 mx-auto mb-4">
+                  <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin" />
                 </div>
                 <p className="text-yellow-400 font-medium mb-1">Генерация...</p>
                 <p className="text-gray-400 text-sm">{progressMessage}</p>
@@ -363,9 +307,18 @@ function ShortsPreview() {
                   <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center text-xs flex-shrink-0">
                     {index + 1}
                   </span>
-                  <span className="text-gray-300 line-clamp-1">
+                  <span className="text-gray-300 line-clamp-1 flex-1">
                     {step.edited_text || step.normalized_text}
                   </span>
+                  <button
+                    onClick={() => {
+                      const audio = new Audio(`/api/v1/shorts/test-tts/${step.id}`)
+                      audio.play()
+                    }}
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs"
+                  >
+                    🔊
+                  </button>
                 </div>
               ))}
             </div>

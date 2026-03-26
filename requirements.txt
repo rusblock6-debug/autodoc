@@ -39,6 +39,9 @@ huggingface-hub>=0.20.0
 # Chatterbox TTS (нейронная озвучка с эмоциями)
 chatterbox-tts==0.1.6
 
+# Edge TTS (быстрая онлайн озвучка от Microsoft)
+edge-tts>=6.1.0
+
 # === Video Processing ===
 moviepy>=1.0.3
 opencv-python>=4.9.0

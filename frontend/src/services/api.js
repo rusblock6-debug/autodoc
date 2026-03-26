@@ -94,7 +94,7 @@ export const shortsApi = {
   getStatus: (taskId) => api.get(`/shorts/status/${taskId}`),
   
   // Скачать готовое видео
-  download: (guideId) => api.get(`/guides/${guideId}/shorts/download`, { responseType: 'blob' }),
+  download: (guideId) => api.get(`/shorts/download/${guideId}`, { responseType: 'blob' }),
   
   // Получить превью (URL видео)
   getPreview: (guideId) => api.get(`/guides/${guideId}/shorts/preview`),

@@ -90,11 +90,13 @@ async def generate_shorts(
     
     # Запускаем генерацию
     try:
+        logger.info(f"Starting Shorts generation for guide {guide.uuid} with {len(steps)} steps")
+        
         result = await shorts_generator.generate_from_steps(
             steps=[
                 {
                     "step_number": s.step_number,
-                    "screenshot_path": await _get_screenshot_url(s.screenshot_path),
+                    "screenshot_path": f"/data/{s.screenshot_path}",  # Полный путь к файлу
                     "click_x": s.click_x,
                     "click_y": s.click_y,
                     "normalized_text": s.normalized_text,
@@ -103,7 +105,6 @@ async def generate_shorts(
                 for s in steps
             ],
             guide_uuid=guide.uuid,
-            # tts_voice не используется (Chatterbox всегда neutral)
         )
         
         if result.success:
@@ -220,6 +221,51 @@ async def download_shorts(
         media_type="video/mp4",
         filename=f"{guide.title}.mp4"
     )
+
+
+@router.get("/test-tts/{step_id}")
+async def test_tts_for_step(
+    step_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    ТЕСТ: Генерация TTS для одного шага.
+    Возвращает аудио файл.
+    """
+    from sqlalchemy import select
+    from app.models import GuideStep
+    
+    result = await db.execute(
+        select(GuideStep).where(GuideStep.id == step_id)
+    )
+    step = result.scalar_one_or_none()
+    
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    
+    text = step.edited_text or step.normalized_text or f"Шаг {step.step_number}"
+    full_text = f"Шаг {step.step_number}. {text}"
+    
+    logger.info(f"Testing TTS for step {step_id}: {full_text[:50]}...")
+    
+    try:
+        from app.services.edge_tts_service import get_edge_tts_service
+        tts_service = get_edge_tts_service()
+        
+        # Генерируем аудио
+        audio_path = await tts_service.synthesize(text=full_text)
+        
+        # Возвращаем файл
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            audio_path,
+            media_type="audio/mpeg",
+            filename=f"step_{step_id}.mp3"
+        )
+        
+    except Exception as e:
+        logger.exception(f"TTS test failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/preview/{guide_id}")

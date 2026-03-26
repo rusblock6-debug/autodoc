@@ -67,7 +67,7 @@ class ShortsGenerator:
             fps: Кадров в секунду
         """
         self.output_dir = Path(output_dir or settings.WORKER_TEMP_DIR)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)  # Создаём директорию если не существует
         self.width = width
         self.height = height
         self.fps = fps
@@ -94,9 +94,9 @@ class ShortsGenerator:
         segments = []
         temp_files = []  # Для очистки
         
-        # Инициализируем Chatterbox сервис
-        from app.services.chatterbox_service import ChatterboxService
-        tts_service = ChatterboxService()
+        # Инициализируем Edge TTS сервис (быстрый, онлайн)
+        from app.services.edge_tts_service import get_edge_tts_service
+        tts_service = get_edge_tts_service()
         
         try:
             # 1. Генерируем TTS и подготавливаем сегменты
@@ -108,8 +108,11 @@ class ShortsGenerator:
                 # Формируем полный текст для озвучки
                 full_text = f"Шаг {step.get('step_number', i+1)}. {text}"
                 
-                # Генерируем TTS через Chatterbox (синхронный вызов)
-                tts_audio_path = tts_service.synthesize(text=full_text)
+                logger.info(f"Processing step {i+1}/{len(steps)}: {full_text[:50]}...")
+                logger.info(f"Screenshot path: {step.get('screenshot_path', '')}")
+                
+                # Генерируем TTS через Edge TTS (асинхронный вызов)
+                tts_audio_path = await tts_service.synthesize(text=full_text)
                 temp_files.append(tts_audio_path)
                 
                 # Получаем длительность аудио
@@ -135,6 +138,7 @@ class ShortsGenerator:
                     logger.warning(f"Missing screenshot for step {i+1}")
                     continue
                 
+                logger.info(f"Creating segment video {i+1}/{len(segments)}...")
                 # Создаём видео из скриншота с маркером и заголовком
                 segment_video = await self._create_segment_video(
                     segment=segment,
@@ -145,8 +149,11 @@ class ShortsGenerator:
                 if segment_video:
                     segment_videos.append(segment_video)
                     temp_files.append(segment_video)
+                else:
+                    logger.error(f"Failed to create segment {i+1}")
             
             if not segment_videos:
+                logger.error("No valid segments created")
                 return ShortsResult(
                     success=False,
                     output_path=None,
@@ -157,6 +164,8 @@ class ShortsGenerator:
             # 3. Склеиваем все сегменты
             output_path = self.output_dir / f"shorts_{guide_uuid}.mp4"
             concat_list = self.output_dir / f"concat_{guide_uuid}.txt"
+            
+            logger.info(f"Concatenating {len(segment_videos)} segments...")
             
             with open(concat_list, "w") as f:
                 for video_path in segment_videos:
@@ -179,7 +188,7 @@ class ShortsGenerator:
             if result.returncode == 0 and output_path.exists():
                 duration = self._get_duration(str(output_path))
                 
-                logger.info(f"Shorts generated: {output_path} ({duration}s)")
+                logger.info(f"Shorts generated successfully: {output_path} ({duration}s)")
                 
                 return ShortsResult(
                     success=True,
@@ -189,6 +198,7 @@ class ShortsGenerator:
                 )
             else:
                 error = result.stderr or "Unknown concat error"
+                logger.error(f"Concatenation failed: {error}")
                 return ShortsResult(
                     success=False,
                     output_path=None,
@@ -231,14 +241,48 @@ class ShortsGenerator:
         # Путь к выходному файлу
         output_path = self.output_dir / f"segment_{guide_uuid}_{segment_index:03d}.mp4"
         
-        # Конвертируем hex color в FFmpeg формат
-        marker_color = "gold"  # FFmpeg понимает 'gold', 'red', 'blue', etc.
+        # Проверяем существует ли файл скриншота
+        screenshot_path = Path(segment.screenshot_path)
         
-        # FFmpeg фильтры
-        # 1. Сначала масштабируем скриншот с соотношением сторон
-        # 2. Добавляем padding для достижения 1080x1920
-        # 3. Рисуем маркер
-        # 4. Добавляем текст "Шаг N"
+        logger.info(f"Original screenshot path: {segment.screenshot_path}")
+        logger.info(f"Current working directory: {Path.cwd()}")
+        
+        # Если путь относительный (начинается с "screenshots/"), добавляем базовый путь /data
+        if not screenshot_path.is_absolute():
+            # Основной путь - /data/screenshots/...
+            absolute_path = Path("/data") / screenshot_path
+            
+            logger.info(f"Checking absolute path: {absolute_path}")
+            
+            if absolute_path.exists():
+                logger.info(f"Found screenshot at: {absolute_path}")
+                screenshot_path = absolute_path
+            else:
+                # Пробуем альтернативные варианты
+                possible_bases = [
+                    Path("./data"),
+                    Path.cwd() / "data",
+                ]
+                
+                for base in possible_bases:
+                    full_path = base / screenshot_path
+                    logger.info(f"Checking alternative path: {full_path}")
+                    if full_path.exists():
+                        logger.info(f"Found screenshot at: {full_path}")
+                        screenshot_path = full_path
+                        break
+                else:
+                    # Если ни один путь не подошел
+                    logger.error(f"Screenshot not found: {segment.screenshot_path}")
+                    return None
+        
+        # Конвертируем hex color в FFmpeg формат
+        marker_color = "gold"
+        
+        # Проверяем наличие скриншота
+        if not screenshot_path.exists():
+            logger.error(f"Screenshot file not found: {screenshot_path}")
+            return None
         
         # Проверяем наличие аудио
         audio_input = []
@@ -248,20 +292,27 @@ class ShortsGenerator:
             audio_input = ["-i", segment.tts_audio_path]
             audio_filter = ["-shortest"]
         
+        # Ограничиваем координаты маркера допустимыми значениями
+        # FFmpeg требует неотрицательные координаты
+        marker_x = max(0, min(segment.marker_x, self.width - 1))
+        marker_y = max(0, min(segment.marker_y, self.height - 1))
+        
+        logger.info(f"Marker coordinates: x={marker_x}, y={marker_y} (original: {segment.marker_x}, {segment.marker_y})")
+        
         # Формируем команду
         cmd = [
             "ffmpeg",
             "-y",
             "-loop", "1",
-            "-i", segment.screenshot_path,
+            "-i", str(screenshot_path),
             *audio_input,
             "-vf", (
                 f"scale={self.width}:{self.height}:"
                 f"force_original_aspect_ratio=decrease,"
                 f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,"
-                f"drawbox=x={segment.marker_x-25}:y={segment.marker_y-25}:"
-                f"w=50:h=50:color=yellow:t=5:round=25,"
-                f"drawbox=x={segment.marker_x-5}:y={segment.marker_y-5}:"
+                f"drawbox=x={marker_x-25}:y={marker_y-25}:"
+                f"w=50:h=50:color=yellow:t=5,"
+                f"drawbox=x={marker_x-5}:y={marker_y-5}:"
                 f"w=10:h=10:color=yellow:t=-1,"
                 f"drawtext=text='Шаг {segment.step_number}':"
                 f"fontcolor=white:fontsize=48:x=(w-text_w)/2:y=50:"
@@ -281,7 +332,9 @@ class ShortsGenerator:
             if result.returncode == 0 and output_path.exists():
                 return str(output_path)
             else:
-                logger.warning(f"Segment creation failed: {result.stderr[:200]}")
+                logger.error(f"FFmpeg command failed with return code {result.returncode}")
+                logger.error(f"FFmpeg stderr: {result.stderr}")
+                logger.error(f"FFmpeg stdout: {result.stdout}")
                 return None
                 
         except Exception as e:
