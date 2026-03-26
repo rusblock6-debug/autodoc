@@ -34,16 +34,16 @@ function ShortsPreview() {
 
   const fetchGuide = async () => {
     try {
-      const data = await guidesApi.getById(guideId)
+      const data = await guidesApi.getByUuid(guideId)
       setGuide(data)
       
       // Если Shorts уже сгенерирован, показываем его
-      if (data.shorts_video_path) {
-        const preview = await shortsApi.getPreview(guideId)
+      if (data.shorts_video_path && data.id) {
+        const preview = await shortsApi.getPreview(data.id)
         setVideoUrl(preview.url)
       }
     } catch (error) {
-      console.error('Failed to fetch guide:', error)
+      setError(error.response?.data?.detail || 'Не удалось загрузить гайд')
     } finally {
       setLoading(false)
     }
@@ -58,10 +58,10 @@ function ShortsPreview() {
       if (status.status === 'completed') {
         setGenerating(false)
         setTaskId(null)
-        // Получаем URL видео
-        const preview = await shortsApi.getPreview(guideId)
-        setVideoUrl(preview.url)
-        // Обновляем гайд
+        if (guide?.id) {
+          const preview = await shortsApi.getPreview(guide.id)
+          setVideoUrl(preview.url)
+        }
         fetchGuide()
       } else if (status.status === 'failed') {
         setGenerating(false)
@@ -69,32 +69,38 @@ function ShortsPreview() {
         setError(status.error || 'Ошибка генерации')
       }
     } catch (error) {
-      console.error('Failed to check progress:', error)
+      // Игнорируем ошибки проверки статуса
     }
   }
 
   const handleGenerate = async () => {
+    if (!guide?.id) {
+      setError('Гайд не загружен')
+      return
+    }
+    
     setGenerating(true)
     setError(null)
     setProgress(0)
     setProgressMessage('Запуск генерации...')
     
     try {
-      const response = await shortsApi.generate(guideId, {
+      const response = await shortsApi.generate(guide.id, {
         marker_color: settings.markerColor,
         target_platform: settings.platform,
       })
       setTaskId(response.task_id)
     } catch (error) {
-      console.error('Failed to start generation:', error)
-      setError('Не удалось запустить генерацию')
+      setError(error.response?.data?.detail || 'Не удалось запустить генерацию')
       setGenerating(false)
     }
   }
 
   const handleDownload = async () => {
+    if (!guide?.id) return
+    
     try {
-      const blob = await shortsApi.download(guideId)
+      const blob = await shortsApi.download(guide.id)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -104,7 +110,7 @@ function ShortsPreview() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch (error) {
-      console.error('Download failed:', error)
+      setError('Не удалось скачать видео')
     }
   }
 

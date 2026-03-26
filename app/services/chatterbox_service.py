@@ -23,7 +23,8 @@ class ChatterboxService:
             from chatterbox.tts import ChatterboxTTS
             
             logger.info("Loading Chatterbox TTS model...")
-            self.model = ChatterboxTTS.from_pretrained("v1_0")
+            # from_pretrained принимает только device, модель загружается автоматически
+            self.model = ChatterboxTTS.from_pretrained(device="cpu")
             logger.info("Chatterbox TTS model loaded successfully")
             
         except ImportError as e:
@@ -53,11 +54,8 @@ class ChatterboxService:
         try:
             logger.info(f"Synthesizing TTS for text: {text[:50]}...")
             
-            # Генерируем аудио (нейтральная эмоция по умолчанию)
-            audio = self.model.synthesize(
-                text=text,
-                emotion="neutral"
-            )
+            # Генерируем аудио через метод generate (не synthesize!)
+            audio = self.model.generate(text=text)
             
             # Сохраняем в файл
             if output_path:

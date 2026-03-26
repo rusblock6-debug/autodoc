@@ -17,6 +17,7 @@ class GuideStatusEnum(str, Enum):
     DRAFT = "draft"
     PROCESSING = "processing"
     READY = "ready"  # Текст готов, можно генерировать Shorts
+    GENERATING = "generating"  # Генерация Shorts
     COMPLETED = "completed"
     FAILED = "failed"
     ARCHIVED = "archived"

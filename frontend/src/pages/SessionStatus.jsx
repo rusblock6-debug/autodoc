@@ -21,20 +21,14 @@ function SessionStatus() {
 
   const fetchStatus = async () => {
     try {
-      console.log('[SessionStatus] Fetching session:', sessionId)
       const data = await sessionsApi.getStatus(sessionId)
-      console.log('[SessionStatus] Got data:', data)
       setSession(data)
       setLoading(false)
       
-      // Если обработка завершена, переходим к редактору
       if (data.status === 'completed' && data.guide_id) {
-        console.log('[SessionStatus] Redirecting to guide:', data.guide_id)
         navigate(`/guide/${data.guide_id}/edit`)
       }
     } catch (error) {
-      console.error('[SessionStatus] Failed to fetch status:', error)
-      console.error('[SessionStatus] Session ID was:', sessionId)
       setLoading(false)
     }
   }

@@ -31,7 +31,9 @@ function StepEditor() {
         setSelectedStep(data.steps[0])
         setAnnotations(data.steps[0].annotations || [])
       }
-    } catch (error) { console.error('Failed to fetch guide:', error) }
+    } catch (error) {
+      // Игнорируем ошибки
+    }
     finally { setLoading(false) }
   }
 
@@ -57,7 +59,6 @@ function StepEditor() {
       await guidesApi.update(guide.id, { title: titleValue.trim() })
       setGuide(prev => ({ ...prev, title: titleValue.trim() }))
     } catch (error) {
-      console.error('Failed to update title:', error)
       setTitleValue(guide.title)
     } finally {
       setSaving(false)
@@ -112,7 +113,7 @@ function StepEditor() {
       await stepsApi.update(stepId, { annotations: annotationsData })
       setSteps(prev => prev.map(s => s.id === stepId ? { ...s, annotations: annotationsData } : s))
     } catch (error) {
-      console.error('Failed to save annotations:', error)
+      // Игнорируем ошибки сохранения аннотаций
     }
   }
 
@@ -176,7 +177,6 @@ function StepEditor() {
       document.body.removeChild(a)
       
     } catch (error) {
-      console.error(`Failed to export ${format}:`, error)
       alert(`Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }
@@ -250,7 +250,6 @@ function StepEditor() {
         alert(`❌ Ошибка: ${error.detail || 'Не удалось экспортировать'}`)
       }
     } catch (error) {
-      console.error('Export error:', error)
       alert('❌ Ошибка экспорта: ' + error.message)
     }
   }

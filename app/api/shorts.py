@@ -22,7 +22,7 @@ from app.services.shorts_generator import shorts_generator
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/shorts", tags=["Shorts"])
+router = APIRouter(tags=["Shorts"])
 
 
 @router.post("/generate/{guide_id}")
@@ -107,25 +107,36 @@ async def generate_shorts(
         )
         
         if result.success:
+            # Сохраняем путь к видео (относительный путь от /data)
+            from pathlib import Path
+            video_path = Path(result.output_path)
+            relative_path = f"output/{video_path.name}"
+            
+            # Перемещаем файл в постоянное хранилище
+            output_dir = Path("/data/output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            final_path = output_dir / video_path.name
+            
+            try:
+                import shutil
+                shutil.move(str(video_path), str(final_path))
+            except Exception as e:
+                logger.error(f"Failed to move video file: {e}")
+                # Если не удалось переместить, копируем
+                shutil.copy2(str(video_path), str(final_path))
+            
             # Обновляем гайд
             guide.status = GuideStatus.COMPLETED
-            guide.shorts_video_path = output_key
+            guide.shorts_video_path = relative_path
             guide.shorts_duration_seconds = result.duration_seconds
             guide.shorts_generated_at = datetime.utcnow()
             guide.updated_at = datetime.utcnow()
             await db.commit()
             
-            # Чистим локальный файл
-            try:
-                from pathlib import Path
-                Path(result.output_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-            
             return {
                 "success": True,
                 "guide_id": guide_id,
-                "shorts_path": output_key,
+                "shorts_path": relative_path,
                 "duration_seconds": result.duration_seconds,
                 "segments_count": result.segments_count,
                 "generated_at": guide.shorts_generated_at.isoformat()

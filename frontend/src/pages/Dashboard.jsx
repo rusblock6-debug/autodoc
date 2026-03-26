@@ -21,10 +21,9 @@ function Dashboard() {
   const loadGuides = async () => {
     try {
       const response = await guidesApi.getAll()
-      console.log('[Dashboard] API Response:', response)
       setGuides(response.items || response || [])
     } catch (error) {
-      console.error('Failed to fetch guides:', error)
+      // Игнорируем ошибки
     } finally {
       setLoading(false)
     }
@@ -39,7 +38,7 @@ function Dashboard() {
       if (fetchGuides) fetchGuides()
       else loadGuides()
     } catch (error) {
-      console.error('Failed to delete:', error)
+      // Игнорируем ошибки
     }
   }
 
@@ -55,7 +54,7 @@ function Dashboard() {
       if (fetchGuides) fetchGuides()
       else loadGuides()
     } catch (error) {
-      console.error('Failed to duplicate:', error)
+      // Игнорируем ошибки
     }
   }
 
@@ -67,7 +66,7 @@ function Dashboard() {
       if (fetchGuides) fetchGuides()
       else loadGuides()
     } catch (error) {
-      console.error('Failed to toggle favorite:', error)
+      // Игнорируем ошибки
     }
   }
 
@@ -102,7 +101,6 @@ function Dashboard() {
       document.body.removeChild(a)
       
     } catch (error) {
-      console.error(`Failed to export ${format}:`, error)
       alert(`Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }
