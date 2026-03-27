@@ -4,7 +4,8 @@
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
@@ -25,6 +26,25 @@ AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,  # Не истекать объекты после коммита
+    autocommit=False,
+    autoflush=False,
+)
+
+# Синхронный движок для Celery worker
+sync_engine = create_engine(
+    settings.sync_database_url,  # Синхронный URL (postgresql+psycopg2://)
+    echo=settings.DEBUG,
+    pool_size=10,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
+
+# Синхронная фабрика сессий для Celery
+SessionLocal = sessionmaker(
+    sync_engine,
+    class_=Session,
+    expire_on_commit=False,
     autocommit=False,
     autoflush=False,
 )

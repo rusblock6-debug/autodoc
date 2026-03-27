@@ -108,8 +108,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Install development dependencies
-RUN pip install --no-cache-dir pytest-asyncio black isort mypy
+# Install development dependencies (mypy removed due to network issues)
+RUN pip install --no-cache-dir pytest-asyncio black isort
 
 # Expose port
 EXPOSE 8000

@@ -28,17 +28,37 @@ class ChatterboxService:
         return cls._instance
     
     def __init__(self):
-        """Инициализация модели (только один раз)"""
+        """Инициализация (модель загружается при первом использовании)"""
+        pass
+    
+    def _ensure_model_loaded(self):
+        """Загрузка модели при первом использовании (ленивая загрузка)"""
         if self._model is not None:
             return  # Модель уже загружена
             
         try:
-            from chatterbox.tts import ChatterboxTTS
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+            import torch
+            import os
             
-            logger.info("Loading Chatterbox TTS model (first time only)...")
-            # from_pretrained принимает только device, модель загружается автоматически
-            self._model = ChatterboxTTS.from_pretrained(device="cpu")
-            logger.info("Chatterbox TTS model loaded successfully")
+            logger.info("Loading Chatterbox Multilingual TTS model (first time only)...")
+            
+            # Патчим torch.load чтобы всегда загружать на CPU
+            original_load = torch.load
+            def load_to_cpu(*args, **kwargs):
+                kwargs['map_location'] = torch.device('cpu')
+                kwargs['weights_only'] = False
+                return original_load(*args, **kwargs)
+            
+            torch.load = load_to_cpu
+            
+            try:
+                # Используем мультиязычную модель для русского
+                self._model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
+                logger.info("Chatterbox Multilingual TTS model loaded successfully")
+            finally:
+                # Восстанавливаем оригинальный torch.load
+                torch.load = original_load
             
         except ImportError as e:
             logger.error(f"Failed to import Chatterbox: {e}")
@@ -49,13 +69,13 @@ class ChatterboxService:
             logger.error(f"Failed to load Chatterbox model: {e}")
             raise
     
-    def synthesize(
+    def _synthesize_sync(
         self,
         text: str,
         output_path: Optional[str] = None
     ) -> str:
         """
-        Синтез речи из текста.
+        Синтез речи из текста (синхронный метод).
         
         Args:
             text: Текст для озвучки
@@ -67,45 +87,69 @@ class ChatterboxService:
         try:
             logger.info(f"Synthesizing TTS for text: {text[:50]}...")
             
-            # Генерируем аудио через метод generate
-            audio_tensor = self._model.generate(text=text)
+            # Загружаем модель если ещё не загружена
+            self._ensure_model_loaded()
             
-            # Конвертируем tensor в numpy array
-            import torch
-            import numpy as np
-            import scipy.io.wavfile as wavfile
-            
-            # Преобразуем tensor в numpy
-            if isinstance(audio_tensor, torch.Tensor):
-                audio_np = audio_tensor.cpu().numpy()
-            else:
-                audio_np = np.array(audio_tensor)
-            
-            # Нормализуем в диапазон int16
-            if audio_np.dtype == np.float32 or audio_np.dtype == np.float64:
-                audio_np = np.clip(audio_np, -1.0, 1.0)
-                audio_np = (audio_np * 32767).astype(np.int16)
+            # Генерируем аудио с указанием русского языка
+            wav = self._model.generate(text=text, language_id="ru")
             
             # Определяем путь для сохранения
             if output_path:
                 save_path = output_path
                 Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             else:
-                temp_file = tempfile.NamedTemporaryFile(
-                    suffix='.wav',
-                    delete=False
-                )
-                save_path = temp_file.name
-                temp_file.close()
+                # Сохраняем в /data/audio/ с уникальным именем
+                import uuid
+                audio_dir = Path("/data/audio")
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                save_path = str(audio_dir / f"tts_{uuid.uuid4().hex[:8]}.wav")
             
-            # Сохраняем как WAV (22050 Hz - стандарт для Chatterbox)
-            wavfile.write(save_path, 22050, audio_np)
+            # Сохраняем через torchaudio (как в документации)
+            import torchaudio as ta
+            ta.save(save_path, wav, self._model.sr)
+            
             logger.info(f"Saved audio to {save_path}")
             return save_path
                 
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
             raise
+    
+    def synthesize_sync(
+        self,
+        text: str,
+        output_path: Optional[str] = None
+    ) -> str:
+        """
+        Синхронный метод синтеза речи (для Celery).
+        
+        Args:
+            text: Текст для озвучки
+            output_path: Путь для сохранения файла (опционально)
+        
+        Returns:
+            Путь к WAV файлу с аудио
+        """
+        return self._synthesize_sync(text, output_path)
+    
+    async def synthesize(
+        self,
+        text: str,
+        output_path: Optional[str] = None
+    ) -> str:
+        """
+        Асинхронная обёртка для синтеза речи.
+        Запускает синхронный метод в отдельном потоке.
+        
+        Args:
+            text: Текст для озвучки
+            output_path: Путь для сохранения файла (опционально)
+        
+        Returns:
+            Путь к WAV файлу с аудио
+        """
+        import asyncio
+        return await asyncio.to_thread(self._synthesize_sync, text, output_path)
     
     def get_audio_duration(self, audio_path: str) -> float:
         """

@@ -1,12 +1,13 @@
 """
 Инициализация сервисов AutoDoc AI System.
-"""
 
-from app.services.video_processor import VideoProcessor
-from app.services.ai_service import AIService
-from app.services.aligner import SmartAligner
-from app.services.storage import StorageService
-from app.services.chatterbox_service import ChatterboxService
+ВАЖНО: Не импортируем сервисы здесь, чтобы избежать загрузки тяжелых моделей при импорте.
+Импортируйте сервисы напрямую из их модулей:
+- from app.services.ai_service import ai_service
+- from app.services.chatterbox_service import ChatterboxService
+- from app.services.video_processor import video_processor
+- etc.
+"""
 
 __all__ = [
     "VideoProcessor",

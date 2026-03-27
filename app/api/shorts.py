@@ -22,6 +22,13 @@ from app.services.shorts_generator import shorts_generator
 
 logger = logging.getLogger(__name__)
 
+# Импортируем Celery задачу
+try:
+    from app.celery_tasks import generate_shorts_task
+except ImportError as e:
+    logger.warning(f"Failed to import Celery task: {e}")
+    generate_shorts_task = None
+
 router = APIRouter(tags=["Shorts"])
 
 
@@ -32,23 +39,27 @@ async def generate_shorts(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Запустить генерацию Shorts из гайда.
+    Запустить генерацию Shorts из гайда (через Celery).
     
     Request body (optional):
     {
         "add_intro": true,
-        "intro_text": "Как создать документ"
+        "intro_text": "Как создать документ",
+        "tts_engine": "edge"  // "edge" или "chatterbox"
     }
     
     Returns:
     {
         "success": True,
-        "task_id": "uuid",
-        "status": "queued",
-        "estimated_time": 120
+        "task_id": "celery-task-uuid",
+        "guide_uuid": "guide-uuid",
+        "status": "queued"
     }
     """
     body = body or {}
+    # По умолчанию используем Edge TTS (легковесный, не требует много памяти)
+    # Chatterbox требует ~3GB RAM и может убить worker
+    tts_engine = body.get("tts_engine", "edge")
     
     # Получаем гайд
     result = await db.execute(
@@ -88,85 +99,58 @@ async def generate_shorts(
     guide.updated_at = datetime.utcnow()
     await db.commit()
     
-    # Запускаем генерацию
+    # Запускаем Celery task
     try:
-        logger.info(f"Starting Shorts generation for guide {guide.uuid} with {len(steps)} steps")
+        if not generate_shorts_task:
+            raise HTTPException(status_code=500, detail="Celery task not available")
         
-        result = await shorts_generator.generate_from_steps(
-            steps=[
-                {
-                    "step_number": s.step_number,
-                    "screenshot_path": f"/data/{s.screenshot_path}",  # Полный путь к файлу
-                    "click_x": s.click_x,
-                    "click_y": s.click_y,
-                    "normalized_text": s.normalized_text,
-                    "edited_text": s.edited_text,
-                }
-                for s in steps
-            ],
-            guide_uuid=guide.uuid,
-        )
+        logger.info(f"Queuing Shorts generation for guide {guide.uuid} with {len(steps)} steps")
         
-        if result.success:
-            # Сохраняем путь к видео (относительный путь от /data)
-            from pathlib import Path
-            video_path = Path(result.output_path)
-            relative_path = f"output/{video_path.name}"
-            
-            # Перемещаем файл в постоянное хранилище
-            output_dir = Path("/data/output")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            final_path = output_dir / video_path.name
-            
-            try:
-                import shutil
-                shutil.move(str(video_path), str(final_path))
-            except Exception as e:
-                logger.error(f"Failed to move video file: {e}")
-                # Если не удалось переместить, копируем
-                shutil.copy2(str(video_path), str(final_path))
-            
-            # Обновляем гайд
-            guide.status = GuideStatus.COMPLETED
-            guide.shorts_video_path = relative_path
-            guide.shorts_duration_seconds = result.duration_seconds
-            guide.shorts_generated_at = datetime.utcnow()
-            guide.updated_at = datetime.utcnow()
-            await db.commit()
-            
-            return {
-                "success": True,
-                "guide_id": guide_id,
-                "shorts_path": relative_path,
-                "duration_seconds": result.duration_seconds,
-                "segments_count": result.segments_count,
-                "generated_at": guide.shorts_generated_at.isoformat()
-            }
-        else:
-            guide.status = GuideStatus.READY
-            guide.error_message = result.error
-            guide.updated_at = datetime.utcnow()
-            await db.commit()
-            
-            raise HTTPException(status_code=500, detail=result.error)
-    
+        # Запускаем задачу асинхронно
+        task = generate_shorts_task.delay(guide.uuid, tts_engine)
+        
+        return {
+            "success": True,
+            "task_id": task.id,
+            "guide_uuid": guide.uuid,
+            "guide_id": guide_id,
+            "status": "queued",
+            "tts_engine": tts_engine,
+            "steps_count": len(steps)
+        }
+        
     except Exception as e:
-        logger.exception(f"Shorts generation failed: {e}")
-        guide.status = GuideStatus.FAILED
+        logger.exception(f"Failed to queue Shorts generation: {e}")
+        guide.status = GuideStatus.READY
         guide.error_message = str(e)
         guide.updated_at = datetime.utcnow()
         await db.commit()
         
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(e)}")
 
 
 @router.get("/status/{guide_id}")
 async def get_shorts_status(
     guide_id: int,
+    task_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Проверить статус генерации Shorts.
+    
+    Query params:
+    - task_id: ID Celery задачи (опционально)
+    
+    Returns:
+    {
+        "guide_id": 1,
+        "status": "generating",  // draft, ready, generating, completed, failed
+        "task_status": "PENDING",  // PENDING, STARTED, SUCCESS, FAILURE (если task_id указан)
+        "task_result": {...},  // результат задачи если завершена
+        "shorts_path": "output/shorts_xxx.mp4",
+        "duration_seconds": 15.5,
+        "generated_at": "2024-01-01T00:00:00"
+    }
     """
     result = await db.execute(
         select(Guide).where(Guide.id == guide_id)
@@ -176,14 +160,67 @@ async def get_shorts_status(
     if not guide:
         raise HTTPException(status_code=404, detail="Guide not found")
     
-    return {
+    response = {
         "guide_id": guide_id,
+        "guide_uuid": guide.uuid,
         "status": guide.status,
         "shorts_path": guide.shorts_video_path,
         "duration_seconds": guide.shorts_duration_seconds,
         "generated_at": guide.shorts_generated_at.isoformat() if guide.shorts_generated_at else None,
         "error_message": guide.error_message
     }
+    
+    # Если указан task_id, проверяем статус Celery задачи
+    if task_id:
+        try:
+            from celery.result import AsyncResult
+            
+            task = AsyncResult(task_id)
+            response["task_status"] = task.state
+            response["task_id"] = task_id
+            
+            # Если задача завершена успешно, обновляем гайд
+            if task.state == "SUCCESS" and task.result:
+                task_result = task.result
+                response["task_result"] = task_result
+                
+                # Обновляем гайд если ещё не обновлён
+                if task_result.get("success") and guide.status == GuideStatus.GENERATING:
+                    from pathlib import Path
+                    
+                    output_path = task_result.get("output_path")
+                    if output_path:
+                        video_path = Path(output_path)
+                        relative_path = f"output/{video_path.name}"
+                        
+                        guide.status = GuideStatus.COMPLETED
+                        guide.shorts_video_path = relative_path
+                        guide.shorts_duration_seconds = task_result.get("duration_seconds", 0)
+                        guide.shorts_generated_at = datetime.utcnow()
+                        guide.updated_at = datetime.utcnow()
+                        await db.commit()
+                        
+                        response["status"] = guide.status
+                        response["shorts_path"] = relative_path
+                        response["duration_seconds"] = guide.shorts_duration_seconds
+                        response["generated_at"] = guide.shorts_generated_at.isoformat()
+            
+            # Если задача провалилась
+            elif task.state == "FAILURE":
+                if guide.status == GuideStatus.GENERATING:
+                    guide.status = GuideStatus.FAILED
+                    guide.error_message = str(task.result) if task.result else "Task failed"
+                    guide.updated_at = datetime.utcnow()
+                    await db.commit()
+                    
+                    response["status"] = guide.status
+                    response["error_message"] = guide.error_message
+                
+        except Exception as e:
+            logger.error(f"Failed to check task status: {e}")
+            response["task_error"] = str(e)
+    
+    return response
 
 
 @router.get("/download/{guide_id}")

@@ -11,16 +11,51 @@ function ShortsPreview() {
   const [progressMessage, setProgressMessage] = useState('')
   const [videoUrl, setVideoUrl] = useState(null)
   const [error, setError] = useState(null)
+  const [taskId, setTaskId] = useState(null)  // Celery task ID
   
   // Настройки генерации
   const [settings, setSettings] = useState({
     markerColor: '#FFEB3B',
     platform: 'tiktok',
+    ttsEngine: 'edge',  // 'edge' или 'chatterbox'
   })
 
   useEffect(() => {
     fetchGuide()
   }, [guideId])
+  
+  // Polling статуса задачи
+  useEffect(() => {
+    if (!taskId || !generating) return
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await shortsApi.getStatus(guide.id, taskId)
+        
+        // Обновляем сообщение прогресса
+        if (status.task_status === 'PENDING') {
+          setProgressMessage('Задача в очереди...')
+        } else if (status.task_status === 'STARTED') {
+          setProgressMessage('Генерация видео...')
+        } else if (status.task_status === 'SUCCESS') {
+          setProgressMessage('Готово!')
+          setGenerating(false)
+          setTaskId(null)
+          await fetchGuide()
+          clearInterval(pollInterval)
+        } else if (status.task_status === 'FAILURE') {
+          setError(status.error_message || 'Генерация не удалась')
+          setGenerating(false)
+          setTaskId(null)
+          clearInterval(pollInterval)
+        }
+      } catch (err) {
+        console.error('Failed to poll task status:', err)
+      }
+    }, 2000)  // Проверяем каждые 2 секунды
+    
+    return () => clearInterval(pollInterval)
+  }, [taskId, generating, guide?.id])
 
   const fetchGuide = async () => {
     try {
@@ -47,17 +82,23 @@ function ShortsPreview() {
     
     setGenerating(true)
     setError(null)
-    setProgressMessage('Генерация видео...')
+    setProgressMessage('Запуск генерации...')
     
     try {
       const response = await shortsApi.generate(guide.id, {
         marker_color: settings.markerColor,
         target_platform: settings.platform,
+        tts_engine: settings.ttsEngine,
       })
       
-      // Генерация завершена успешно
-      setGenerating(false)
-      await fetchGuide() // Обновляем данные гайда
+      // Сохраняем task_id для polling
+      if (response.task_id) {
+        setTaskId(response.task_id)
+        setProgressMessage('Задача в очереди...')
+      } else {
+        setError('Не получен ID задачи')
+        setGenerating(false)
+      }
       
     } catch (error) {
       setError(error.response?.data?.detail || 'Не удалось запустить генерацию')
@@ -179,14 +220,39 @@ function ShortsPreview() {
           <div className="bg-gray-800 rounded-xl p-4">
             <h3 className="font-medium mb-4">Настройки генерации</h3>
             
-            {/* Info about Chatterbox */}
-            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-              <p className="text-sm text-blue-300 flex items-center">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Используется бесплатная нейронная озвучка Chatterbox TTS
-              </p>
+            {/* TTS Engine selector */}
+            <div className="mb-4">
+              <label className="block text-sm text-gray-400 mb-2">Движок озвучки</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setSettings(s => ({ ...s, ttsEngine: 'edge' }))}
+                  disabled={generating}
+                  className={`
+                    px-3 py-3 rounded-lg text-sm transition-colors text-left
+                    ${settings.ttsEngine === 'edge'
+                      ? 'bg-yellow-500 text-black'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }
+                  `}
+                >
+                  <div className="font-medium">Edge TTS</div>
+                  <div className="text-xs opacity-75 mt-1">Быстро (2-5 сек)</div>
+                </button>
+                <button
+                  onClick={() => setSettings(s => ({ ...s, ttsEngine: 'chatterbox' }))}
+                  disabled={generating}
+                  className={`
+                    px-3 py-3 rounded-lg text-sm transition-colors text-left
+                    ${settings.ttsEngine === 'chatterbox'
+                      ? 'bg-yellow-500 text-black'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }
+                  `}
+                >
+                  <div className="font-medium">Chatterbox</div>
+                  <div className="text-xs opacity-75 mt-1">Медленно, качество выше</div>
+                </button>
+              </div>
             </div>
 
             {/* Platform */}
@@ -281,7 +347,7 @@ function ShortsPreview() {
                 <svg className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Нейронная TTS озвучка (Chatterbox)
+                Нейронная TTS озвучка ({settings.ttsEngine === 'edge' ? 'Edge TTS' : 'Chatterbox'})
               </li>
               <li className="flex items-start">
                 <svg className="w-4 h-4 text-green-400 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

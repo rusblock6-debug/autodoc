@@ -143,6 +143,8 @@ class WhisperASR:
     - Groq API (рекомендуется, быстрее локального)
     - OpenAI API (если есть кредиты)
     - Локальный Whisper (fallback)
+    
+    ЛЕНИВАЯ ЗАГРУЗКА: модель загружается только при первом использовании.
     """
     
     def __init__(
@@ -167,10 +169,14 @@ class WhisperASR:
         self.device = device or getattr(settings, 'WHISPER_DEVICE', 'cpu')
         
         self.client = None
-        self._init_client()
+        self._model_loaded = False
+        # НЕ загружаем модель при инициализации!
     
-    def _init_client(self) -> None:
-        """Инициализация API клиента."""
+    def _ensure_initialized(self) -> None:
+        """Ленивая инициализация - загружаем модель только при первом использовании."""
+        if self._model_loaded:
+            return
+        
         # Если есть API настройки - используем API
         if self.api_base and self.api_key:
             try:
@@ -183,13 +189,16 @@ class WhisperASR:
                     api_key=self.api_key,
                 )
                 logger.info(f"Whisper API client initialized: {self.api_base}")
+                self._model_loaded = True
             except Exception as e:
                 logger.error(f"Failed to init API client: {e}")
                 self.client = None
-        else:
+        
+        if not self._model_loaded:
             # Fallback на локальный Whisper
             logger.info("No API config, using local Whisper")
             self._load_local_model()
+            self._model_loaded = True
     
     def _load_local_model(self) -> None:
         """Загрузка локальной модели Whisper."""
@@ -229,6 +238,9 @@ class WhisperASR:
             raise InferenceError(f"Audio file not found: {audio_path}")
         
         logger.info(f"Starting transcription: {audio_path}")
+        
+        # ЛЕНИВАЯ ЗАГРУЗКА: загружаем модель только сейчас
+        self._ensure_initialized()
         
         # Используем API если доступен
         if self.client:
@@ -366,6 +378,9 @@ class WhisperASR:
         """
         Транскрипция потокового аудио.
         """
+        # ЛЕНИВАЯ ЗАГРУЗКА
+        self._ensure_initialized()
+        
         temp_dir = getattr(settings, 'TEMP_DIR', '/tmp')
         Path(temp_dir).mkdir(parents=True, exist_ok=True)
         temp_audio = Path(temp_dir) / f"stream_{uuid.uuid4().hex}.wav"

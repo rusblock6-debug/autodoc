@@ -119,17 +119,6 @@ class Settings(BaseSettings):
         description="Базовый путь для локального хранилища"
     )
     
-    # === Настройки MinIO (S3-совместимое хранилище) === УДАЛЕНО - используется локальное хранилище
-    # MINIO_ENDPOINT: str = Field(default="localhost:9000", description="Эндпоинт MinIO")
-    # MINIO_ACCESS_KEY: str = Field(default="minioadmin", description="Access key MinIO")
-    # MINIO_SECRET_KEY: str = Field(default="minioadmin", description="Secret key MinIO")
-    # MINIO_BUCKET_VIDEOS: str = Field(default="autodoc-videos", description="Бакет для видео")
-    # MINIO_BUCKET_SCREENSHOTS: str = Field(default="autodoc-screenshots", description="Бакет для скриншотов")
-    # MINIO_BUCKET_WIKI: str = Field(default="autodoc-wiki", description="Бакет для Wiki")
-    # MINIO_BUCKET_UPLOADS: str = Field(default="autodoc-uploads", description="Бакет для загрузок")
-    # MINIO_SECURE: bool = Field(default=False, description="Использовать HTTPS")
-    # MINIO_PRESIGNED_URL_EXPIRY: int = Field(default=3600, description="Срок действия presigned URL в секундах")
-    
     # === Настройки AI-моделей ===
     # 
     # Поддержка внешних API для AI-моделей (бесплатные лимиты):

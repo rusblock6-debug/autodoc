@@ -18,8 +18,32 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.lingma/
 *.swp
 *.swo
 
 # Logs
 *.log
+logs/
+
+# Data directories (runtime files)
+data/audio/*
+data/output/*
+data/screenshots/*
+data/videos/*
+data/uploads/*
+data/wiki/*
+data/models/*
+!data/**/.gitkeep
+
+# Test files
+test_*.py
+admin.html
+data.json
+
+# Docker volumes
+postgres_data/
+redis_data/
+pgadmin_data/
+whisper_cache/
+chatterbox_cache/

@@ -91,7 +91,10 @@ export const shortsApi = {
   generate: (guideId, options = {}) => api.post(`/shorts/generate/${guideId}`, options),
   
   // Получить статус генерации
-  getStatus: (taskId) => api.get(`/shorts/status/${taskId}`),
+  getStatus: (guideId, taskId = null) => {
+    const params = taskId ? { task_id: taskId } : {}
+    return api.get(`/shorts/status/${guideId}`, { params })
+  },
   
   // Скачать готовое видео
   download: (guideId) => api.get(`/shorts/download/${guideId}`, { responseType: 'blob' }),

@@ -446,6 +446,53 @@ def cleanup_heartbeats() -> Dict[str, Any]:
     }
 
 
+# === Shorts Generation Task ===
+
+from celery import shared_task
+
+@shared_task(
+    bind=True,
+    name="app.celery_tasks.generate_shorts_task",
+    soft_time_limit=1800,
+    max_retries=2,
+    acks_late=True,
+)
+def generate_shorts_task(self, guide_uuid: str, tts_engine: str = "edge"):
+    """
+    Celery task для генерации shorts видео.
+    
+    Args:
+        guide_uuid: UUID гайда
+        tts_engine: "edge" или "chatterbox"
+    
+    Returns:
+        Dict с результатом генерации
+    """
+    task_id = self.request.id or f"shorts_{uuid.uuid4().hex[:8]}"
+    logger.info(f"Starting shorts generation task {task_id} for guide {guide_uuid} with {tts_engine}")
+    
+    try:
+        # Регистрируем в heartbeat
+        heartbeat_manager.register_job(task_id, f"celery:generate_shorts")
+        
+        # Импортируем здесь чтобы избежать циклических зависимостей
+        from app.services.shorts_generator_sync import generate_shorts_sync
+        
+        # Вызываем синхронную версию генератора
+        result = generate_shorts_sync(guide_uuid, tts_engine)
+        
+        # Удаляем из heartbeat
+        heartbeat_manager.unregister_job(task_id)
+        
+        logger.info(f"Shorts generation completed: {result}")
+        return result
+        
+    except Exception as e:
+        heartbeat_manager.unregister_job(task_id)
+        logger.error(f"Shorts generation failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
 # === Cleanup Tasks ===
 
 def cleanup_temp_files(max_age_hours: int = 24) -> Dict[str, Any]:

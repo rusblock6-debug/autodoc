@@ -37,7 +37,7 @@ huggingface-hub>=0.20.0
 
 # === TTS ===
 # Chatterbox TTS (нейронная озвучка с эмоциями)
-chatterbox-tts==0.1.6
+chatterbox-tts==0.1.7
 
 # Edge TTS (быстрая онлайн озвучка от Microsoft)
 edge-tts>=6.1.0

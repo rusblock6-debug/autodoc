@@ -67,6 +67,33 @@ class EdgeTTSService:
             logger.error(f"TTS synthesis failed: {e}")
             raise
     
+    def synthesize_sync(
+        self,
+        text: str,
+        output_path: Optional[str] = None
+    ) -> str:
+        """
+        Синхронный метод синтеза речи (для Celery).
+        Создаёт новый event loop для выполнения async операции.
+        
+        Args:
+            text: Текст для озвучки
+            output_path: Путь для сохранения файла (опционально)
+        
+        Returns:
+            Путь к MP3 файлу с аудио
+        """
+        import asyncio
+        
+        # Создаём новый event loop для синхронного вызова
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            return loop.run_until_complete(self.synthesize(text, output_path))
+        finally:
+            loop.close()
+    
     def get_audio_duration(self, audio_path: str) -> float:
         """
         Получить длительность аудио в секундах.
