@@ -1,8 +1,8 @@
 """
-API: Shorts - генерация Shorts видео.
-POST /guides/{id}/shorts/generate - запустить генерацию
-GET /guides/{id}/shorts/status - проверить статус
-GET /guides/{id}/shorts/download - скачать результат
+API: Video - генерация видео-гайдов.
+POST /guides/{id}/video/generate - запустить генерацию
+GET /guides/{id}/video/status/{task_id} - проверить статус задачи
+GET /guides/{id}/video/download - скачать результат
 """
 
 import logging
@@ -22,44 +22,34 @@ from app.services.shorts_generator import shorts_generator
 
 logger = logging.getLogger(__name__)
 
-# Импортируем Celery задачу
-try:
-    from app.celery_tasks import generate_shorts_task
-except ImportError as e:
-    logger.warning(f"Failed to import Celery task: {e}")
-    generate_shorts_task = None
-
-router = APIRouter(tags=["Shorts"])
+router = APIRouter(tags=["Video"])
 
 
 @router.post("/generate/{guide_id}")
-async def generate_shorts(
+async def generate_video(
     guide_id: int,
     body: Optional[dict] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Запустить генерацию Shorts из гайда (через Celery).
+    Запустить генерацию видео из гайда.
     
-    Request body (optional):
+    Request body:
     {
-        "add_intro": true,
-        "intro_text": "Как создать документ",
-        "tts_engine": "edge"  // "edge" или "chatterbox"
+        "tts_engine": "edge" | "chatterbox",
+        "tts_voice": "ru-RU-SvetlanaNeural",
+        "tts_speed": 1.0,
+        "tts_pitch": 0
     }
     
     Returns:
     {
         "success": True,
-        "task_id": "celery-task-uuid",
-        "guide_uuid": "guide-uuid",
-        "status": "queued"
+        "task_id": "uuid",
+        "message": "Video generation started"
     }
     """
     body = body or {}
-    # По умолчанию используем Edge TTS (легковесный, не требует много памяти)
-    # Chatterbox требует ~3GB RAM и может убить worker
-    tts_engine = body.get("tts_engine", "edge")
     
     # Получаем гайд
     result = await db.execute(
@@ -99,58 +89,141 @@ async def generate_shorts(
     guide.updated_at = datetime.utcnow()
     await db.commit()
     
-    # Запускаем Celery task
+    # Извлекаем настройки TTS
+    tts_engine = body.get("tts_engine", "edge")
+    tts_voice = body.get("tts_voice", "ru-RU-SvetlanaNeural")
+    tts_speed = body.get("tts_speed", 1.0)
+    tts_pitch = body.get("tts_pitch", 0)
+    
+    # Запускаем генерацию через Celery
     try:
-        if not generate_shorts_task:
-            raise HTTPException(status_code=500, detail="Celery task not available")
+        from app.celery_tasks import generate_video_task
         
-        logger.info(f"Queuing Shorts generation for guide {guide.uuid} with {len(steps)} steps")
+        logger.info(f"Starting video generation for guide {guide.uuid} with {len(steps)} steps")
         
-        # Запускаем задачу асинхронно
-        task = generate_shorts_task.delay(guide.uuid, tts_engine)
+        task = generate_video_task.delay(
+            guide_id=guide.id,
+            tts_engine=tts_engine,
+            tts_voice=tts_voice,
+            tts_speed=tts_speed,
+            tts_pitch=tts_pitch
+        )
         
         return {
             "success": True,
             "task_id": task.id,
-            "guide_uuid": guide.uuid,
-            "guide_id": guide_id,
-            "status": "queued",
-            "tts_engine": tts_engine,
-            "steps_count": len(steps)
+            "message": "Video generation started"
         }
         
+        if result.success:
+            # Сохраняем путь к видео (относительный путь от /data)
+            from pathlib import Path
+            video_path = Path(result.output_path)
+            relative_path = f"output/{video_path.name}"
+            
+            # Перемещаем файл в постоянное хранилище
+            output_dir = Path("/data/output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            final_path = output_dir / video_path.name
+            
+            try:
+                import shutil
+                shutil.move(str(video_path), str(final_path))
+            except Exception as e:
+                logger.error(f"Failed to move video file: {e}")
+                # Если не удалось переместить, копируем
+                shutil.copy2(str(video_path), str(final_path))
+            
+            # Обновляем гайд
+            guide.status = GuideStatus.COMPLETED
+            guide.video_path = relative_path
+            guide.video_duration_seconds = result.duration_seconds
+            guide.video_generated_at = datetime.utcnow()
+            guide.updated_at = datetime.utcnow()
+            await db.commit()
+            
+            return {
+                "success": True,
+                "guide_id": guide_id,
+                "video_path": relative_path,
+                "duration_seconds": result.duration_seconds,
+                "segments_count": result.segments_count,
+                "generated_at": guide.video_generated_at.isoformat()
+            }
+        else:
+            guide.status = GuideStatus.READY
+            guide.error_message = result.error
+            guide.updated_at = datetime.utcnow()
+            await db.commit()
+            
+            raise HTTPException(status_code=500, detail=result.error)
+    
     except Exception as e:
-        logger.exception(f"Failed to queue Shorts generation: {e}")
-        guide.status = GuideStatus.READY
-        guide.error_message = str(e)
-        guide.updated_at = datetime.utcnow()
-        await db.commit()
-        
-        raise HTTPException(status_code=500, detail=f"Failed to queue task: {str(e)}")
+        logger.exception(f"Video generation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
-@router.get("/status/{guide_id}")
-async def get_shorts_status(
+@router.get("/status/{guide_id}/{task_id}")
+async def get_video_status(
     guide_id: int,
-    task_id: Optional[str] = None,
+    task_id: str,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Проверить статус генерации Shorts.
-    
-    Query params:
-    - task_id: ID Celery задачи (опционально)
+    Проверить статус генерации видео по task_id.
     
     Returns:
     {
-        "guide_id": 1,
-        "status": "generating",  // draft, ready, generating, completed, failed
-        "task_status": "PENDING",  // PENDING, STARTED, SUCCESS, FAILURE (если task_id указан)
-        "task_result": {...},  // результат задачи если завершена
-        "shorts_path": "output/shorts_xxx.mp4",
-        "duration_seconds": 15.5,
-        "generated_at": "2024-01-01T00:00:00"
+        "task_id": "uuid",
+        "task_status": "PENDING" | "STARTED" | "SUCCESS" | "FAILURE",
+        "progress": 45,
+        "current_step": "Генерация TTS для шага 3/10",
+        "error_message": null
     }
+    """
+    from celery.result import AsyncResult
+    from app.celery import celery_app
+    
+    result = AsyncResult(task_id, app=celery_app)
+    
+    response = {
+        "task_id": task_id,
+        "task_status": result.state,
+        "progress": 0,
+        "current_step": None,
+        "error_message": None
+    }
+    
+    if result.state == "PENDING":
+        response["current_step"] = "Задача в очереди..."
+    elif result.state == "STARTED":
+        response["current_step"] = "Генерация началась..."
+        response["progress"] = 5
+    elif result.state == "PROGRESS":
+        # Celery может передавать метаданные о прогрессе
+        if result.info:
+            response["progress"] = result.info.get("progress", 0)
+            response["current_step"] = result.info.get("message", "Обработка...")
+    elif result.state == "SUCCESS":
+        response["progress"] = 100
+        response["current_step"] = "Готово!"
+    elif result.state == "FAILURE":
+        response["error_message"] = str(result.info) if result.info else "Unknown error"
+        response["current_step"] = "Ошибка генерации"
+    
+    return response
+
+
+@router.get("/status/{guide_id}")
+async def get_guide_video_status(
+    guide_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Проверить статус видео гайда.
     """
     result = await db.execute(
         select(Guide).where(Guide.id == guide_id)
@@ -160,76 +233,23 @@ async def get_shorts_status(
     if not guide:
         raise HTTPException(status_code=404, detail="Guide not found")
     
-    response = {
+    return {
         "guide_id": guide_id,
-        "guide_uuid": guide.uuid,
         "status": guide.status,
-        "shorts_path": guide.shorts_video_path,
+        "video_path": guide.shorts_video_path,
         "duration_seconds": guide.shorts_duration_seconds,
         "generated_at": guide.shorts_generated_at.isoformat() if guide.shorts_generated_at else None,
         "error_message": guide.error_message
     }
-    
-    # Если указан task_id, проверяем статус Celery задачи
-    if task_id:
-        try:
-            from celery.result import AsyncResult
-            
-            task = AsyncResult(task_id)
-            response["task_status"] = task.state
-            response["task_id"] = task_id
-            
-            # Если задача завершена успешно, обновляем гайд
-            if task.state == "SUCCESS" and task.result:
-                task_result = task.result
-                response["task_result"] = task_result
-                
-                # Обновляем гайд если ещё не обновлён
-                if task_result.get("success") and guide.status == GuideStatus.GENERATING:
-                    from pathlib import Path
-                    
-                    output_path = task_result.get("output_path")
-                    if output_path:
-                        video_path = Path(output_path)
-                        relative_path = f"output/{video_path.name}"
-                        
-                        guide.status = GuideStatus.COMPLETED
-                        guide.shorts_video_path = relative_path
-                        guide.shorts_duration_seconds = task_result.get("duration_seconds", 0)
-                        guide.shorts_generated_at = datetime.utcnow()
-                        guide.updated_at = datetime.utcnow()
-                        await db.commit()
-                        
-                        response["status"] = guide.status
-                        response["shorts_path"] = relative_path
-                        response["duration_seconds"] = guide.shorts_duration_seconds
-                        response["generated_at"] = guide.shorts_generated_at.isoformat()
-            
-            # Если задача провалилась
-            elif task.state == "FAILURE":
-                if guide.status == GuideStatus.GENERATING:
-                    guide.status = GuideStatus.FAILED
-                    guide.error_message = str(task.result) if task.result else "Task failed"
-                    guide.updated_at = datetime.utcnow()
-                    await db.commit()
-                    
-                    response["status"] = guide.status
-                    response["error_message"] = guide.error_message
-                
-        except Exception as e:
-            logger.error(f"Failed to check task status: {e}")
-            response["task_error"] = str(e)
-    
-    return response
 
 
 @router.get("/download/{guide_id}")
-async def download_shorts(
+async def download_video(
     guide_id: int,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Получить presigned URL для скачивания Shorts.
+    Скачать сгенерированное видео.
     """
     result = await db.execute(
         select(Guide).where(Guide.id == guide_id)
@@ -240,7 +260,7 @@ async def download_shorts(
         raise HTTPException(status_code=404, detail="Guide not found")
     
     if not guide.shorts_video_path:
-        raise HTTPException(status_code=404, detail="Shorts not generated yet")
+        raise HTTPException(status_code=404, detail="Video not generated yet")
     
     if guide.status != GuideStatus.COMPLETED:
         raise HTTPException(status_code=400, detail=f"Guide status: {guide.status}")
@@ -280,17 +300,16 @@ async def test_tts_for_step(
     if not step:
         raise HTTPException(status_code=404, detail="Step not found")
     
-    text = step.edited_text or step.normalized_text or f"Шаг {step.step_number}"
-    full_text = f"Шаг {step.step_number}. {text}"
+    text = step.edited_text or step.normalized_text
     
-    logger.info(f"Testing TTS for step {step_id}: {full_text[:50]}...")
+    logger.info(f"Testing TTS for step {step_id}: {text[:50]}...")
     
     try:
         from app.services.edge_tts_service import get_edge_tts_service
         tts_service = get_edge_tts_service()
         
-        # Генерируем аудио
-        audio_path = await tts_service.synthesize(text=full_text)
+        # Генерируем аудио (БЕЗ "Шаг N")
+        audio_path = await tts_service.synthesize(text=text)
         
         # Возвращаем файл
         from fastapi.responses import FileResponse

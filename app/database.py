@@ -84,3 +84,21 @@ async def close_db() -> None:
     Закрытие соединений с базой данных при завершении работы.
     """
     await engine.dispose()
+
+
+def get_db_sync():
+    """
+    Синхронная версия get_db для использования в Celery tasks.
+    
+    Пример использования:
+        db = next(get_db_sync())
+        try:
+            # работа с БД
+        finally:
+            db.close()
+    """
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

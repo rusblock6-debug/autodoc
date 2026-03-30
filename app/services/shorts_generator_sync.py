@@ -45,15 +45,28 @@ class ShortsGeneratorSync:
     def __init__(
         self,
         output_dir: str = "/tmp/autodoc_worker_temp",
-        width: int = 1080,
-        height: int = 1920,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         fps: int = 30
     ):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.width = width
+        self.width = width  # Может быть None - определим из первого скриншота
         self.height = height
         self.fps = fps
+    
+    def _get_image_size(self, image_path: str) -> tuple[int, int]:
+        """Получить размер изображения (округляет до четных чисел для H.264)."""
+        try:
+            from PIL import Image
+            with Image.open(image_path) as img:
+                # H.264 требует четные размеры - округляем вверх
+                width = img.width + (img.width % 2)
+                height = img.height + (img.height % 2)
+                return width, height
+        except Exception as e:
+            logger.error(f"Failed to get image size: {e}")
+            return 1920, 1080  # Fallback
     
     def generate_from_steps(
         self,
@@ -81,6 +94,16 @@ class ShortsGeneratorSync:
         segments = []
         temp_files = []
         
+        # Определяем размер видео из первого скриншота
+        if self.width is None or self.height is None:
+            if steps and steps[0].get('screenshot_path'):
+                first_screenshot = steps[0]['screenshot_path']
+                self.width, self.height = self._get_image_size(first_screenshot)
+                logger.info(f"[SYNC] Detected video size from screenshot: {self.width}x{self.height}")
+            else:
+                self.width, self.height = 1920, 1080
+                logger.warning(f"[SYNC] No screenshot found, using default size: {self.width}x{self.height}")
+        
         # Выбираем TTS сервис
         if tts_engine == "chatterbox":
             logger.info("[SYNC] Trying to use Chatterbox TTS")
@@ -104,12 +127,11 @@ class ShortsGeneratorSync:
                 if not text:
                     text = f"Шаг {step.get('step_number', i+1)}"
                 
-                full_text = f"Шаг {step.get('step_number', i+1)}. {text}"
-                
-                logger.info(f"[SYNC] Step {i+1}/{len(steps)}: {full_text[:50]}...")
+                # БЕЗ проговаривания "Шаг N"
+                logger.info(f"[SYNC] Step {i+1}/{len(steps)}: {text[:50]}...")
                 
                 # Генерируем TTS (синхронно)
-                tts_audio_path = tts_service.synthesize_sync(text=full_text)
+                tts_audio_path = tts_service.synthesize_sync(text=text)
                 
                 if not tts_audio_path or not Path(tts_audio_path).exists():
                     logger.error(f"[SYNC] TTS failed for step {i+1}")
@@ -260,16 +282,12 @@ class ShortsGeneratorSync:
             "-i", str(screenshot_path),
             "-i", segment.tts_audio_path,
             "-vf", (
-                f"scale={self.width}:{self.height}:"
-                f"force_original_aspect_ratio=decrease,"
-                f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,"
+                # Просто растягиваем на весь экран (игнорируя пропорции)
+                f"scale={self.width}:{self.height},"
                 f"drawbox=x={marker_x-25}:y={marker_y-25}:"
                 f"w=50:h=50:color=yellow:t=5,"
                 f"drawbox=x={marker_x-5}:y={marker_y-5}:"
-                f"w=10:h=10:color=yellow:t=-1,"
-                f"drawtext=text='Шаг {segment.step_number}':"
-                f"fontcolor=white:fontsize=48:x=(w-text_w)/2:y=50:"
-                f"bordercolor=black:borderw=3"
+                f"w=10:h=10:color=yellow:t=-1"
             ),
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
@@ -285,7 +303,9 @@ class ShortsGeneratorSync:
                 logger.info(f"[SYNC] Segment created: {output_path}")
                 return str(output_path)
             else:
-                logger.error(f"[SYNC] FFmpeg failed: {result.stderr[:200]}")
+                logger.error(f"[SYNC] FFmpeg failed with code {result.returncode}")
+                logger.error(f"[SYNC] FFmpeg stderr: {result.stderr}")
+                logger.error(f"[SYNC] FFmpeg stdout: {result.stdout}")
                 return None
                 
         except Exception as e:
@@ -427,3 +447,138 @@ def generate_shorts_sync(guide_uuid: str, tts_engine: str = "edge") -> Dict[str,
     
     finally:
         session.close()
+
+
+
+def generate_video_from_steps(
+    steps: List[Dict[str, Any]],
+    guide_uuid: str,
+    progress_callback=None
+) -> Dict[str, Any]:
+    """
+    Генерация видео из шагов с прогрессом (для Celery task).
+    
+    Args:
+        steps: Список шагов с полями:
+            - step_number: int
+            - audio_path: str (путь к TTS аудио)
+            - screenshot_path: str (полный путь)
+            - click_x, click_y: int
+        guide_uuid: UUID гайда
+        progress_callback: Функция для обновления прогресса (progress, message)
+    
+    Returns:
+        Dict с результатом
+    """
+    logger.info(f"[VIDEO] Generating video for {guide_uuid} with {len(steps)} steps")
+    
+    generator = ShortsGeneratorSync()
+    temp_files = []
+    segment_videos = []
+    
+    # Определяем размер из первого скриншота
+    if steps and steps[0].get('screenshot_path'):
+        first_screenshot = steps[0]['screenshot_path']
+        generator.width, generator.height = generator._get_image_size(first_screenshot)
+        logger.info(f"[VIDEO] Detected video size: {generator.width}x{generator.height}")
+    
+    try:
+        # 1. Создаём видео-сегменты
+        for i, step in enumerate(steps):
+            if progress_callback:
+                progress = int((i / len(steps)) * 100)
+                progress_callback(progress, f'Обработка шага {i+1}/{len(steps)}')
+            
+            logger.info(f"[VIDEO] Creating segment {i+1}/{len(steps)}...")
+            
+            segment = ShortsSegment(
+                step_number=step.get('step_number', i+1),
+                screenshot_path=step.get('screenshot_path', ''),
+                marker_x=step.get('click_x', 0),
+                marker_y=step.get('click_y', 0),
+                text='',  # Текст уже в аудио
+                tts_audio_path=step.get('audio_path', ''),
+                duration_seconds=generator._get_duration(step.get('audio_path', '')) or 3.0
+            )
+            
+            segment_video = generator._create_segment_video(
+                segment=segment,
+                guide_uuid=guide_uuid,
+                segment_index=i
+            )
+            
+            if segment_video:
+                segment_videos.append(segment_video)
+                temp_files.append(segment_video)
+        
+        if not segment_videos:
+            return {
+                "success": False,
+                "error": "No video segments created"
+            }
+        
+        if progress_callback:
+            progress_callback(80, 'Склеивание видео...')
+        
+        # 2. Склеиваем сегменты
+        output_path = Path("/data/output") / f"video_{guide_uuid}.mp4"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        concat_list = generator.output_dir / f"concat_{guide_uuid}.txt"
+        
+        with open(concat_list, "w") as f:
+            for video_path in segment_videos:
+                f.write(f"file '{video_path}'\n")
+        
+        logger.info(f"[VIDEO] Concatenating {len(segment_videos)} segments...")
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_list),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(output_path)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0 and output_path.exists():
+            duration = generator._get_duration(str(output_path))
+            
+            if progress_callback:
+                progress_callback(100, 'Готово!')
+            
+            logger.info(f"[VIDEO] SUCCESS! Video: {output_path} ({duration}s)")
+            
+            return {
+                "success": True,
+                "output_path": str(output_path),
+                "duration_seconds": duration or 0,
+                "segments_count": len(segment_videos)
+            }
+        else:
+            error = result.stderr or "Concat failed"
+            logger.error(f"[VIDEO] Concatenation failed: {error}")
+            return {
+                "success": False,
+                "error": error[:300]
+            }
+    
+    except Exception as e:
+        logger.exception(f"[VIDEO] Generation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    
+    finally:
+        # Очистка временных файлов
+        for f in temp_files:
+            try:
+                if f and Path(f).exists():
+                    Path(f).unlink()
+            except Exception:
+                pass

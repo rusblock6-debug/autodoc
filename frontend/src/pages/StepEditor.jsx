@@ -16,8 +16,58 @@ function StepEditor() {
   const [annotations, setAnnotations] = useState([])
   const [drawingAnnotation, setDrawingAnnotation] = useState(null)
   const imageRef = useRef(null)
+  
+  // Вкладки: 'steps' или 'video'
+  const [activeTab, setActiveTab] = useState('steps')
+  
+  // Состояние генерации видео
+  const [generating, setGenerating] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [progressMessage, setProgressMessage] = useState('')
+  const [videoUrl, setVideoUrl] = useState(null)
+  const [videoError, setVideoError] = useState(null)
+  const [taskId, setTaskId] = useState(null)
+  
+  // Настройки TTS
+  const [ttsSettings, setTtsSettings] = useState({
+    ttsEngine: 'edge',
+    ttsVoice: 'ru-RU-SvetlanaNeural',
+    ttsSpeed: 1.0,
+    ttsPitch: 0,
+  })
 
   useEffect(() => { fetchGuide() }, [guideId])
+  
+  // Polling статуса задачи генерации видео
+  useEffect(() => {
+    if (!taskId || !generating) return
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/v1/video/status/${guide.id}/${taskId}`)
+        const status = await response.json()
+        
+        setProgress(status.progress || 0)
+        setProgressMessage(status.current_step || '')
+        
+        if (status.task_status === 'SUCCESS') {
+          setGenerating(false)
+          setTaskId(null)
+          await fetchGuide()
+          clearInterval(pollInterval)
+        } else if (status.task_status === 'FAILURE') {
+          setVideoError(status.error_message || 'Генерация не удалась')
+          setGenerating(false)
+          setTaskId(null)
+          clearInterval(pollInterval)
+        }
+      } catch (err) {
+        console.error('Failed to poll task status:', err)
+      }
+    }, 1000)
+    
+    return () => clearInterval(pollInterval)
+  }, [taskId, generating, guide?.id])
 
   const fetchGuide = async () => {
     try {
@@ -30,6 +80,11 @@ function StepEditor() {
       if (data.steps?.length > 0) {
         setSelectedStep(data.steps[0])
         setAnnotations(data.steps[0].annotations || [])
+      }
+      
+      // Проверяем наличие видео
+      if (data.shorts_video_path && data.id) {
+        setVideoUrl(`/api/v1/video/download/${data.id}`)
       }
     } catch (error) {
       // Игнорируем ошибки
@@ -147,6 +202,64 @@ function StepEditor() {
 
   const handleReadyForShorts = async () => {
     try { await guidesApi.update(guide.id, { status: 'ready' }); navigate(`/guide/${guideId}/shorts`) } catch {}
+  }
+  
+  const handleGenerateVideo = async () => {
+    if (!guide?.id) {
+      setVideoError('Гайд не загружен')
+      return
+    }
+    
+    setGenerating(true)
+    setVideoError(null)
+    setProgress(0)
+    setProgressMessage('Запуск генерации...')
+    
+    try {
+      const response = await fetch(`/api/v1/video/generate/${guide.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tts_engine: ttsSettings.ttsEngine,
+          tts_voice: ttsSettings.ttsVoice,
+          tts_speed: ttsSettings.ttsSpeed,
+          tts_pitch: ttsSettings.ttsPitch,
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.task_id) {
+        setTaskId(data.task_id)
+        setProgressMessage('Задача в очереди...')
+      } else {
+        setVideoError('Не получен ID задачи')
+        setGenerating(false)
+      }
+      
+    } catch (error) {
+      setVideoError(error.response?.data?.detail || 'Не удалось запустить генерацию')
+      setGenerating(false)
+    }
+  }
+  
+  const handleDownloadVideo = async () => {
+    if (!guide?.id) return
+    
+    try {
+      const response = await fetch(`/api/v1/video/download/${guide.id}`)
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${guide.title.replace(/[^a-z0-9]/gi, '_')}_video.mp4`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      setVideoError('Не удалось скачать видео')
+    }
   }
 
   const handleExport = async (format) => {
@@ -373,36 +486,72 @@ function StepEditor() {
           <button onClick={() => handleExport('json')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             JSON
           </button>
-          <button onClick={handleReadyForShorts} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#ed8d48', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            Shorts →
-          </button>
         </div>
       </div>
 
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Steps sidebar - light */}
-        <div style={{ width: '280px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e0e0e0' }}>
-            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999' }}>Шаги</span>
+        <div style={{ width: '320px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e0e0e0' }}>
+            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999' }}>Шаги</span>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {steps.map((step, index) => (
-              <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id}
-                onSelect={() => { setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
+              <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id && activeTab === 'steps'} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id}
+                onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
+            
+            {/* ВИДЕО - последний элемент списка */}
+            <div
+              onClick={() => setActiveTab('video')}
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #e0e0e0',
+                cursor: 'pointer',
+                backgroundColor: activeTab === 'video' ? '#fff5e6' : '#fff',
+                borderLeft: activeTab === 'video' ? '3px solid #ed8d48' : '3px solid transparent',
+                transition: 'all 0.15s'
+              }}
+              onMouseOver={(e) => { if (activeTab !== 'video') e.currentTarget.style.backgroundColor = '#fafafa' }}
+              onMouseOut={(e) => { if (activeTab !== 'video') e.currentTarget.style.backgroundColor = '#fff' }}
+            >
+              <div style={{
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '13px',
+                fontWeight: 600,
+                color: activeTab === 'video' ? '#ed8d48' : '#333'
+              }}>
+                ВИДЕО
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Preview */}
+        {/* Preview / Video Panel */}
         <div style={{ flex: 1, backgroundColor: '#fafafa', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#666' }}>
-              Шаг {selectedStep?.step_number || '-'}
-            </span>
-            {/* Toolbar - right side */}
-            {selectedStep && (
+          {activeTab === 'video' ? (
+            <VideoPanel
+              guide={guide}
+              generating={generating}
+              progress={progress}
+              progressMessage={progressMessage}
+              videoUrl={videoUrl}
+              videoError={videoError}
+              ttsSettings={ttsSettings}
+              setTtsSettings={setTtsSettings}
+              onGenerate={handleGenerateVideo}
+              onDownload={handleDownloadVideo}
+            />
+          ) : (
+            <>
+              <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#666' }}>
+                  Шаг {selectedStep?.step_number || '-'}
+                </span>
+                {/* Toolbar - right side */}
+                {selectedStep && (
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 {/* Маркер */}
                 {selectedStep.click_x > 0 && selectedStep.click_y > 0 ? (
@@ -529,6 +678,8 @@ function StepEditor() {
               <div style={{ color: '#999', padding: '48px' }}>Нет скриншота</div>
             )}
           </div>
+            </>
+          )}
         </div>
       </div>
       
@@ -980,6 +1131,248 @@ function SmallBtn({ onClick, icon, danger }) {
         <path d={icon} />
       </svg>
     </button>
+  )
+}
+
+// Компонент панели генерации видео
+function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, videoError, ttsSettings, setTtsSettings, onGenerate, onDownload }) {
+  const voices = {
+    edge: [
+      { value: 'ru-RU-SvetlanaNeural', label: 'Светлана' },
+      { value: 'ru-RU-DmitryNeural', label: 'Дмитрий' },
+      { value: 'ru-RU-DariyaNeural', label: 'Дарья' },
+    ],
+    chatterbox: [
+      { value: 'neutral', label: 'Нейтральный' },
+    ]
+  }
+  
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ padding: '12px 20px', backgroundColor: '#fff', borderBottom: '1px solid #e0e0e0' }}>
+        <h3 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '14px', fontWeight: 600, color: '#333', margin: 0 }}>
+          Видео
+        </h3>
+      </div>
+      
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Превью видео */}
+        {videoUrl && !generating && (
+          <div style={{ backgroundColor: '#000', borderRadius: '8px', overflow: 'hidden', aspectRatio: '16/9', maxWidth: '800px' }}>
+            <video src={videoUrl} controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+        )}
+        
+        {/* Прогресс генерации */}
+        {generating && (
+          <div style={{ backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '24px', textAlign: 'center', maxWidth: '600px' }}>
+            <div style={{ width: '60px', height: '60px', margin: '0 auto 16px', border: '4px solid #ed8d48', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <p style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '14px', fontWeight: 600, color: '#ed8d48', marginBottom: '12px' }}>
+              Генерация видео...
+            </p>
+            <div style={{ width: '100%', height: '6px', backgroundColor: '#f5f5f5', borderRadius: '3px', overflow: 'hidden', marginBottom: '12px' }}>
+              <div style={{ width: `${progress}%`, height: '100%', backgroundColor: '#ed8d48', transition: 'width 0.3s' }} />
+            </div>
+            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+              {progressMessage}
+            </p>
+            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#999' }}>
+              {progress}%
+            </p>
+          </div>
+        )}
+        
+        {/* Ошибка */}
+        {videoError && (
+          <div style={{ backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '8px', padding: '16px', maxWidth: '600px' }}>
+            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#c33', margin: 0 }}>{videoError}</p>
+          </div>
+        )}
+        
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', maxWidth: '800px' }}>
+          {/* Настройки TTS */}
+          <div style={{ backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '16px' }}>
+            <h4 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '12px', fontWeight: 600, marginBottom: '16px', color: '#333' }}>
+              Настройки озвучки
+            </h4>
+            
+            {/* Движок */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
+                Движок
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <button
+                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'edge', ttsVoice: 'ru-RU-SvetlanaNeural' }))}
+                  disabled={generating}
+                  style={{
+                    padding: '10px',
+                    fontFamily: 'Montserrat, sans-serif',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: ttsSettings.ttsEngine === 'edge' ? '#ed8d48' : '#fff',
+                    color: ttsSettings.ttsEngine === 'edge' ? '#fff' : '#666',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px',
+                    cursor: generating ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Edge TTS
+                </button>
+                <button
+                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'chatterbox', ttsVoice: 'neutral' }))}
+                  disabled={generating}
+                  style={{
+                    padding: '10px',
+                    fontFamily: 'Montserrat, sans-serif',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: ttsSettings.ttsEngine === 'chatterbox' ? '#ed8d48' : '#fff',
+                    color: ttsSettings.ttsEngine === 'chatterbox' ? '#fff' : '#666',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px',
+                    cursor: generating ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Chatterbox
+                </button>
+              </div>
+            </div>
+            
+            {/* Голос */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
+                Голос
+              </label>
+              <select
+                value={ttsSettings.ttsVoice}
+                onChange={(e) => setTtsSettings(s => ({ ...s, ttsVoice: e.target.value }))}
+                disabled={generating}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  fontFamily: 'Roboto, sans-serif',
+                  fontSize: '12px',
+                  backgroundColor: '#fff',
+                  border: '1px solid #e0e0e0',
+                  borderRadius: '4px',
+                  cursor: generating ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {voices[ttsSettings.ttsEngine].map(voice => (
+                  <option key={voice.value} value={voice.value}>{voice.label}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Скорость */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
+                Скорость: {ttsSettings.ttsSpeed.toFixed(1)}x
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={ttsSettings.ttsSpeed}
+                onChange={(e) => setTtsSettings(s => ({ ...s, ttsSpeed: parseFloat(e.target.value) }))}
+                disabled={generating}
+                style={{ width: '100%' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'Roboto, sans-serif', fontSize: '10px', color: '#999', marginTop: '4px' }}>
+                <span>0.5x</span>
+                <span>1.0x</span>
+                <span>2.0x</span>
+              </div>
+            </div>
+            
+            {/* Тембр (только для Edge) */}
+            {ttsSettings.ttsEngine === 'edge' && (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
+                  Тембр: {ttsSettings.ttsPitch > 0 ? '+' : ''}{ttsSettings.ttsPitch}
+                </label>
+                <input
+                  type="range"
+                  min="-20"
+                  max="20"
+                  step="1"
+                  value={ttsSettings.ttsPitch}
+                  onChange={(e) => setTtsSettings(s => ({ ...s, ttsPitch: parseInt(e.target.value) }))}
+                  disabled={generating}
+                  style={{ width: '100%' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'Roboto, sans-serif', fontSize: '10px', color: '#999', marginTop: '4px' }}>
+                  <span>Низкий</span>
+                  <span>Норма</span>
+                  <span>Высокий</span>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          {/* Действия */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button
+              onClick={onGenerate}
+              disabled={generating}
+              style={{
+                padding: '16px',
+                fontFamily: 'Montserrat, sans-serif',
+                fontSize: '12px',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                backgroundColor: generating ? '#ccc' : '#ed8d48',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: generating ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              {generating ? 'Генерация...' : videoUrl ? 'Перегенерировать' : 'Сгенерировать видео'}
+            </button>
+            
+            {videoUrl && !generating && (
+              <button
+                onClick={onDownload}
+                style={{
+                  padding: '14px',
+                  fontFamily: 'Montserrat, sans-serif',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  backgroundColor: '#22c55e',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                ⬇ Скачать видео
+              </button>
+            )}
+            
+            {/* Информация */}
+            {guide?.shorts_duration_seconds && (
+              <div style={{ padding: '12px', backgroundColor: '#f9f9f9', border: '1px solid #e0e0e0', borderRadius: '4px', textAlign: 'center' }}>
+                <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', margin: 0 }}>
+                  Длительность: {Math.round(guide.shorts_duration_seconds)} сек
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

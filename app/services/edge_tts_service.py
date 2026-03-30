@@ -17,13 +17,17 @@ class EdgeTTSService:
     Быстро, качественно, но требует интернет.
     """
     
-    def __init__(self, voice: str = "ru-RU-DmitryNeural"):
+    def __init__(self, voice: str = "ru-RU-DmitryNeural", rate: str = "+0%", pitch: str = "+0Hz"):
         """
         Args:
             voice: Голос для озвучки (ru-RU-DmitryNeural или ru-RU-SvetlanaNeural)
+            rate: Скорость речи (например "+50%" или "-25%")
+            pitch: Тембр голоса (например "+10Hz" или "-5Hz")
         """
         self.voice = voice
-        logger.info(f"Edge TTS service initialized with voice: {voice}")
+        self.rate = rate
+        self.pitch = pitch
+        logger.info(f"Edge TTS service initialized with voice: {voice}, rate: {rate}, pitch: {pitch}")
     
     async def synthesize(
         self,
@@ -57,7 +61,7 @@ class EdgeTTSService:
             
             # Генерируем аудио
             import edge_tts
-            communicate = edge_tts.Communicate(text, self.voice)
+            communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch)
             await communicate.save(save_path)
             
             logger.info(f"Saved audio to {save_path}")

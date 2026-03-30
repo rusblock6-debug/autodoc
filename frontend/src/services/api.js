@@ -85,7 +85,22 @@ export const stepsApi = {
   merge: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/merge`, { step_ids: stepIds }),
 }
 
-// === Shorts API ===
+// === Video API (NEW) ===
+export const videoApi = {
+  // Запустить генерацию видео
+  generate: (guideId, options = {}) => api.post(`/video/generate/${guideId}`, options),
+  
+  // Получить статус генерации по task_id
+  getStatus: (guideId, taskId) => api.get(`/video/status/${guideId}/${taskId}`),
+  
+  // Получить статус видео гайда
+  getGuideStatus: (guideId) => api.get(`/video/status/${guideId}`),
+  
+  // Скачать готовое видео
+  download: (guideId) => api.get(`/video/download/${guideId}`, { responseType: 'blob' }),
+}
+
+// === Shorts API (DEPRECATED - use videoApi) ===
 export const shortsApi = {
   // Запустить генерацию Shorts
   generate: (guideId, options = {}) => api.post(`/shorts/generate/${guideId}`, options),

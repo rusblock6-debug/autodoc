@@ -4,7 +4,7 @@ import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import StepEditor from './pages/StepEditor'
 import SessionStatus from './pages/SessionStatus'
-import ShortsPreview from './pages/ShortsPreview'
+import VideoGeneration from './pages/VideoGeneration'
 
 function App() {
   return (
@@ -13,7 +13,7 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="guide/:guideId/edit" element={<StepEditor />} />
-          <Route path="guide/:guideId/shorts" element={<ShortsPreview />} />
+          <Route path="guide/:guideId/video" element={<VideoGeneration />} />
           <Route path="session/:sessionId" element={<SessionStatus />} />
         </Route>
       </Routes>
