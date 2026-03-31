@@ -654,6 +654,17 @@ function StepEditor() {
             {selectedStep?.screenshot_path ? (
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 300px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
+                
+                {/* Серый оверлей с вырезами под аннотации */}
+                {annotations.length > 0 && (
+                  <DarkOverlay 
+                    annotations={annotations}
+                    imageRef={imageRef}
+                    viewportWidth={selectedStep.screenshot_width}
+                    viewportHeight={selectedStep.screenshot_height}
+                  />
+                )}
+                
                 <DraggableMarker 
                   x={selectedStep.click_x} 
                   y={selectedStep.click_y} 
@@ -693,6 +704,86 @@ function StepEditor() {
         onSubmit={handleExportSubmit}
       />
     </div>
+  )
+}
+
+// Компонент серого оверлея с вырезами под аннотации
+function DarkOverlay({ annotations, imageRef, viewportWidth, viewportHeight }) {
+  const getImageDimensions = () => {
+    if (!imageRef.current) return { width: 0, height: 0 }
+    return {
+      width: imageRef.current.clientWidth || 0,
+      height: imageRef.current.clientHeight || 0
+    }
+  }
+
+  const convertToDisplayCoords = (annotation) => {
+    if (!imageRef.current) return { x: 0, y: 0, width: 0, height: 0 }
+    
+    const dw = imageRef.current.clientWidth || 1
+    const dh = imageRef.current.clientHeight || 1
+    const vw = viewportWidth || imageRef.current.naturalWidth || dw
+    const vh = viewportHeight || imageRef.current.naturalHeight || dh
+    
+    return {
+      x: (annotation.x / vw) * dw,
+      y: (annotation.y / vh) * dh,
+      width: (annotation.width / vw) * dw,
+      height: (annotation.height / vh) * dh
+    }
+  }
+
+  const { width: imgWidth, height: imgHeight } = getImageDimensions()
+  
+  if (imgWidth === 0 || imgHeight === 0) return null
+
+  return (
+    <svg
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        borderRadius: '4px',
+        overflow: 'hidden'
+      }}
+      viewBox={`0 0 ${imgWidth} ${imgHeight}`}
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <mask id="cutout-mask">
+          {/* Белый фон = видимая область */}
+          <rect x="0" y="0" width={imgWidth} height={imgHeight} fill="white" />
+          
+          {/* Черные прямоугольники = вырезы (прозрачные области) */}
+          {annotations.map(ann => {
+            const pos = convertToDisplayCoords(ann)
+            return (
+              <rect
+                key={ann.id}
+                x={pos.x}
+                y={pos.y}
+                width={pos.width}
+                height={pos.height}
+                fill="black"
+              />
+            )
+          })}
+        </mask>
+      </defs>
+      
+      {/* Серый оверлей с маской */}
+      <rect
+        x="0"
+        y="0"
+        width={imgWidth}
+        height={imgHeight}
+        fill="rgba(0, 0, 0, 0.4)"
+        mask="url(#cutout-mask)"
+      />
+    </svg>
   )
 }
 

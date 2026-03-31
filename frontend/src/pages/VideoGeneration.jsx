@@ -109,6 +109,10 @@ function VideoGeneration() {
         })
       })
       
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const data = await response.json()
       
       if (data.task_id) {
@@ -120,7 +124,7 @@ function VideoGeneration() {
       }
       
     } catch (error) {
-      setError(error.response?.data?.detail || 'Не удалось запустить генерацию')
+      setError(error.message || 'Не удалось запустить генерацию')
       setGenerating(false)
     }
   }

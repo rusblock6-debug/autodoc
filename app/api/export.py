@@ -379,33 +379,20 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
     for step in steps:
         screenshot_html = ""
         if step.screenshot_path:
-            # Получаем изображение как base64 для встраивания в PDF
-            screenshot_base64 = _get_screenshot_base64(step.screenshot_path)
+            # Получаем изображение с примененными аннотациями как base64
+            screenshot_base64 = _get_screenshot_base64(
+                step.screenshot_path,
+                annotations=step.annotations,
+                marker_x=step.click_x,
+                marker_y=step.click_y,
+                img_width=step.screenshot_width,
+                img_height=step.screenshot_height
+            )
             if screenshot_base64:
-                # Вычисляем позицию маркера в процентах от размера viewport
-                marker_html = ""
-                if step.click_x and step.click_y and step.screenshot_width and step.screenshot_height:
-                    marker_left_percent = (step.click_x / step.screenshot_width) * 100
-                    marker_top_percent = (step.click_y / step.screenshot_height) * 100
-                    marker_html = f'<div class="click-marker" style="left: {marker_left_percent:.2f}%; top: {marker_top_percent:.2f}%;"><span>{step.step_number}</span></div>'
-                
-                # Добавляем аннотации (прямоугольники)
-                annotations_html = ""
-                if step.annotations:
-                    for ann in step.annotations:
-                        if ann.get('type') == 'rect':
-                            ann_left = (ann.get('x', 0) / step.screenshot_width) * 100
-                            ann_top = (ann.get('y', 0) / step.screenshot_height) * 100
-                            ann_width = (ann.get('width', 100) / step.screenshot_width) * 100
-                            ann_height = (ann.get('height', 50) / step.screenshot_height) * 100
-                            ann_color = ann.get('color', '#ed8d48')
-                            annotations_html += f'<div class="annotation-rect" style="left: {ann_left:.2f}%; top: {ann_top:.2f}%; width: {ann_width:.2f}%; height: {ann_height:.2f}%; border-color: {ann_color};"></div>'
-                
+                # Изображение уже содержит overlay, аннотации и маркер
                 screenshot_html = f"""
                 <div class="screenshot">
                     <img src="data:image/png;base64,{screenshot_base64}" alt="Шаг {step.step_number}" />
-                    {marker_html}
-                    {annotations_html}
                 </div>
                 """
             else:
@@ -610,6 +597,50 @@ def _get_pdf_css() -> str:
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     
+    .dark-overlay-base {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+        border-radius: 8px;
+        z-index: 1;
+    }
+    
+    .cutout-window {
+        position: absolute;
+        background: white;
+        opacity: 1;
+        pointer-events: none;
+        z-index: 2;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    }
+    
+    .dark-overlay-simple {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+        border-radius: 8px;
+        z-index: 1;
+    }
+    
+    .annotation-rect-with-bg {
+        position: absolute;
+        border: 3px solid #ed8d48;
+        border-radius: 4px;
+        background-color: transparent;
+        box-sizing: border-box;
+        z-index: 2;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+        clip-path: inset(0 0 0 0);
+    }
+    
     .screenshot-placeholder {
         margin: 16px 0;
         padding: 40px;
@@ -648,6 +679,7 @@ def _get_pdf_css() -> str:
         border-radius: 4px;
         background: transparent;
         box-sizing: border-box;
+        z-index: 3;
     }
     
     .step-text {
@@ -717,11 +749,14 @@ def _convert_simple_markdown(md: str) -> str:
     
     return html
 
-def _get_screenshot_base64(screenshot_path: str) -> Optional[str]:
+def _get_screenshot_base64(screenshot_path: str, annotations: list = None, marker_x: int = None, marker_y: int = None, img_width: int = None, img_height: int = None) -> Optional[str]:
     """Получает скриншот как base64 строку для встраивания в PDF.
-    Теперь работает с локальными файлами и конвертирует старый формат."""
+    Использует screenshot_processor для обработки аннотаций."""
     try:
         from pathlib import Path
+        from app.services.screenshot_processor import process_screenshot_with_annotations, cleanup_processed_screenshot
+        import io
+        from PIL import Image
         
         # Конвертируем путь в полный путь в /data
         full_path_str = screenshot_path
@@ -731,8 +766,6 @@ def _get_screenshot_base64(screenshot_path: str) -> Optional[str]:
             full_path_str = screenshot_path[1:]
         
         # Если путь в старом формате (без "screenshots/"), добавляем префикс
-        # Старый: "6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
-        # Новый: "screenshots/6ea3fafd-d8c1-4900-b37d-087904966679/98c714c7_screenshot_1.png"
         if not full_path_str.startswith("screenshots/"):
             full_path_str = f"screenshots/{full_path_str}"
         
@@ -742,11 +775,39 @@ def _get_screenshot_base64(screenshot_path: str) -> Optional[str]:
             logger.warning(f"Screenshot file not found: {full_path}")
             return None
         
-        # Читаем файл и кодируем в base64
-        with open(full_path, 'rb') as f:
-            file_data = f.read()
+        # Обрабатываем скриншот с аннотациями если они есть
+        processed_path = None
+        if annotations and len(annotations) > 0:
+            processed_path = process_screenshot_with_annotations(
+                screenshot_path=str(full_path),
+                annotations=annotations,
+                marker_x=marker_x,
+                marker_y=marker_y
+            )
+        elif marker_x is not None and marker_y is not None:
+            # Только маркер, без аннотаций
+            processed_path = process_screenshot_with_annotations(
+                screenshot_path=str(full_path),
+                annotations=[],
+                marker_x=marker_x,
+                marker_y=marker_y
+            )
         
-        return base64.b64encode(file_data).decode('utf-8')
+        # Используем обработанный скриншот или оригинал
+        final_path = processed_path if processed_path else str(full_path)
+        
+        # Открываем и конвертируем в base64
+        img = Image.open(final_path).convert('RGB')
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+        result = base64.b64encode(buffer.read()).decode('utf-8')
+        
+        # Удаляем обработанный файл если он был создан
+        if processed_path and processed_path != str(full_path):
+            cleanup_processed_screenshot(processed_path)
+        
+        return result
         
     except Exception as e:
         logger.error(f"Failed to get screenshot {screenshot_path}: {e}")

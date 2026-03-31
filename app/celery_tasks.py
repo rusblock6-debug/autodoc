@@ -639,6 +639,7 @@ def generate_video_task(
                 "screenshot_path": f"/data/{step.screenshot_path}",
                 "click_x": step.click_x,
                 "click_y": step.click_y,
+                "annotations": step.annotations or []
             })
         
         self.update_state(

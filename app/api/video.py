@@ -109,6 +109,12 @@ async def generate_video(
             tts_pitch=tts_pitch
         )
         
+        logger.info(f"Task created: {task.id}")
+        
+        if not task.id:
+            logger.error("Task ID is None!")
+            raise HTTPException(status_code=500, detail="Failed to create task")
+        
         return {
             "success": True,
             "task_id": task.id,

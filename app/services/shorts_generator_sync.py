@@ -23,7 +23,13 @@ class ShortsSegment:
     text: str
     tts_audio_path: str
     duration_seconds: float
+    annotations: List[Dict[str, Any]] = None
     output_path: str = ""
+    
+    def __post_init__(self):
+        """Инициализация аннотаций."""
+        if self.annotations is None:
+            self.annotations = []
 
 
 @dataclass
@@ -149,7 +155,8 @@ class ShortsGeneratorSync:
                     marker_y=step.get('click_y', 0),
                     text=text,
                     tts_audio_path=tts_audio_path,
-                    duration_seconds=max(duration, 2.0)
+                    duration_seconds=max(duration, 2.0),
+                    annotations=step.get('annotations', [])
                 )
                 
                 segments.append(segment)
@@ -257,6 +264,8 @@ class ShortsGeneratorSync:
         segment_index: int
     ) -> Optional[str]:
         """Создать видео-сегмент из скриншота (синхронно)."""
+        from app.services.screenshot_processor import process_screenshot_with_annotations, cleanup_processed_screenshot
+        
         output_path = self.output_dir / f"segment_{guide_uuid}_{segment_index:03d}.mp4"
         
         screenshot_path = Path(segment.screenshot_path)
@@ -270,25 +279,49 @@ class ShortsGeneratorSync:
             logger.error(f"[SYNC] Audio not found: {segment.tts_audio_path}")
             return None
         
-        # Ограничиваем координаты
+        # Ограничиваем координаты маркера
         marker_x = max(0, min(segment.marker_x, self.width - 1))
         marker_y = max(0, min(segment.marker_y, self.height - 1))
         
+        logger.info(f"[SYNC] Segment {segment_index}: annotations count = {len(segment.annotations) if segment.annotations else 0}")
+        
+        # Обрабатываем скриншот с аннотациями и маркером
+        processed_screenshot = None
+        if segment.annotations and len(segment.annotations) > 0:
+            # Создаем обработанную версию с overlay, аннотациями и маркером
+            processed_screenshot = process_screenshot_with_annotations(
+                screenshot_path=str(screenshot_path),
+                annotations=segment.annotations,
+                marker_x=marker_x,
+                marker_y=marker_y
+            )
+            
+            if processed_screenshot:
+                logger.info(f"[SYNC] Using processed screenshot with {len(segment.annotations)} annotations and marker")
+            else:
+                logger.warning(f"[SYNC] Failed to process screenshot, using original")
+                processed_screenshot = str(screenshot_path)
+        else:
+            # Нет аннотаций, но рисуем маркер
+            processed_screenshot = process_screenshot_with_annotations(
+                screenshot_path=str(screenshot_path),
+                annotations=[],
+                marker_x=marker_x,
+                marker_y=marker_y
+            )
+            
+            if not processed_screenshot:
+                processed_screenshot = str(screenshot_path)
+        
+        # Генерируем видео из обработанного скриншота
         cmd = [
             "ffmpeg",
             "-y",
             "-loop", "1",
             "-t", str(segment.duration_seconds),
-            "-i", str(screenshot_path),
+            "-i", processed_screenshot,
             "-i", segment.tts_audio_path,
-            "-vf", (
-                # Просто растягиваем на весь экран (игнорируя пропорции)
-                f"scale={self.width}:{self.height},"
-                f"drawbox=x={marker_x-25}:y={marker_y-25}:"
-                f"w=50:h=50:color=yellow:t=5,"
-                f"drawbox=x={marker_x-5}:y={marker_y-5}:"
-                f"w=10:h=10:color=yellow:t=-1"
-            ),
+            "-vf", f"scale={self.width}:{self.height}",
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-r", str(self.fps),
@@ -298,6 +331,10 @@ class ShortsGeneratorSync:
         
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            # Удаляем обработанный скриншот если он был создан
+            if processed_screenshot != str(screenshot_path):
+                cleanup_processed_screenshot(processed_screenshot)
             
             if result.returncode == 0 and output_path.exists():
                 logger.info(f"[SYNC] Segment created: {output_path}")
@@ -310,6 +347,9 @@ class ShortsGeneratorSync:
                 
         except Exception as e:
             logger.error(f"[SYNC] Segment creation error: {e}")
+            # Удаляем обработанный скриншот в случае ошибки
+            if processed_screenshot and processed_screenshot != str(screenshot_path):
+                cleanup_processed_screenshot(processed_screenshot)
             return None
     
     def _get_duration(self, video_path: str) -> float:
@@ -393,7 +433,8 @@ def generate_shorts_sync(guide_uuid: str, tts_engine: str = "edge") -> Dict[str,
                 "click_x": step.click_x or 540,
                 "click_y": step.click_y or 960,
                 "normalized_text": step.normalized_text or "",
-                "edited_text": step.edited_text or ""
+                "edited_text": step.edited_text or "",
+                "annotations": step.annotations or []
             })
         
         # Генерируем Shorts
@@ -498,7 +539,8 @@ def generate_video_from_steps(
                 marker_y=step.get('click_y', 0),
                 text='',  # Текст уже в аудио
                 tts_audio_path=step.get('audio_path', ''),
-                duration_seconds=generator._get_duration(step.get('audio_path', '')) or 3.0
+                duration_seconds=generator._get_duration(step.get('audio_path', '')) or 3.0,
+                annotations=step.get('annotations', [])
             )
             
             segment_video = generator._create_segment_video(
