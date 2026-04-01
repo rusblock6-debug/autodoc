@@ -110,16 +110,19 @@ function VideoGeneration() {
       })
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.detail || `HTTP error! status: ${response.status}`
+        throw new Error(errorMessage)
       }
       
       const data = await response.json()
       
-      if (data.task_id) {
+      if (data.success && data.task_id) {
         setTaskId(data.task_id)
         setProgressMessage('Задача в очереди...')
       } else {
-        setError('Не получен ID задачи')
+        const errorMsg = data.error || 'Не получен ID задачи. Проверьте, что Celery worker запущен.'
+        setError(errorMsg)
         setGenerating(false)
       }
       

@@ -51,6 +51,8 @@ async def generate_video(
     """
     body = body or {}
     
+    logger.info(f"Video generation request for guide_id={guide_id}, body={body}")
+    
     # Получаем гайд
     result = await db.execute(
         select(Guide)
@@ -60,14 +62,8 @@ async def generate_video(
     guide = result.scalar_one_or_none()
     
     if not guide:
+        logger.warning(f"Guide {guide_id} not found")
         raise HTTPException(status_code=404, detail="Guide not found")
-    
-    # Проверяем статус
-    if guide.status == GuideStatus.DRAFT:
-        raise HTTPException(
-            status_code=400, 
-            detail="Guide is in draft mode. Finalize steps first."
-        )
     
     # Проверяем, что есть шаги
     steps = sorted(guide.steps, key=lambda s: s.step_number)
@@ -98,9 +94,29 @@ async def generate_video(
     # Запускаем генерацию через Celery
     try:
         from app.celery_tasks import generate_video_task
+        from app.celery import celery_app
         
-        logger.info(f"Starting video generation for guide {guide.uuid} with {len(steps)} steps")
+        logger.info(f"Starting video generation for guide {guide.uuid} (id={guide.id}) with {len(steps)} steps")
+        logger.info(f"TTS settings: engine={tts_engine}, voice={tts_voice}, speed={tts_speed}, pitch={tts_pitch}")
         
+        # Проверяем, что Celery worker доступен
+        inspect = celery_app.control.inspect()
+        active_workers = inspect.active()
+        
+        if not active_workers:
+            logger.error("No active Celery workers found!")
+            guide.status = GuideStatus.READY
+            guide.error_message = "No Celery workers available"
+            guide.updated_at = datetime.utcnow()
+            await db.commit()
+            raise HTTPException(
+                status_code=503, 
+                detail="Task queue unavailable. No Celery workers are running. Please start the worker with: celery -A app.celery worker --loglevel=info"
+            )
+        
+        logger.info(f"Active workers: {list(active_workers.keys())}")
+        
+        # Создаем задачу
         task = generate_video_task.delay(
             guide_id=guide.id,
             tts_engine=tts_engine,
@@ -109,67 +125,38 @@ async def generate_video(
             tts_pitch=tts_pitch
         )
         
-        logger.info(f"Task created: {task.id}")
+        logger.info(f"Task object created: {task}")
+        logger.info(f"Task ID: {task.id}")
+        logger.info(f"Task state: {task.state}")
         
         if not task.id:
-            logger.error("Task ID is None!")
-            raise HTTPException(status_code=500, detail="Failed to create task")
+            logger.error("Task ID is None after delay()!")
+            guide.status = GuideStatus.READY
+            guide.error_message = "Failed to create task - task.id is None"
+            guide.updated_at = datetime.utcnow()
+            await db.commit()
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to create task. Task ID is None. Check Celery worker logs."
+            )
+        
+        logger.info(f"✓ Task successfully created with ID: {task.id}")
         
         return {
             "success": True,
             "task_id": task.id,
             "message": "Video generation started"
         }
-        
-        if result.success:
-            # Сохраняем путь к видео (относительный путь от /data)
-            from pathlib import Path
-            video_path = Path(result.output_path)
-            relative_path = f"output/{video_path.name}"
-            
-            # Перемещаем файл в постоянное хранилище
-            output_dir = Path("/data/output")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            final_path = output_dir / video_path.name
-            
-            try:
-                import shutil
-                shutil.move(str(video_path), str(final_path))
-            except Exception as e:
-                logger.error(f"Failed to move video file: {e}")
-                # Если не удалось переместить, копируем
-                shutil.copy2(str(video_path), str(final_path))
-            
-            # Обновляем гайд
-            guide.status = GuideStatus.COMPLETED
-            guide.video_path = relative_path
-            guide.video_duration_seconds = result.duration_seconds
-            guide.video_generated_at = datetime.utcnow()
-            guide.updated_at = datetime.utcnow()
-            await db.commit()
-            
-            return {
-                "success": True,
-                "guide_id": guide_id,
-                "video_path": relative_path,
-                "duration_seconds": result.duration_seconds,
-                "segments_count": result.segments_count,
-                "generated_at": guide.video_generated_at.isoformat()
-            }
-        else:
-            guide.status = GuideStatus.READY
-            guide.error_message = result.error
-            guide.updated_at = datetime.utcnow()
-            await db.commit()
-            
-            raise HTTPException(status_code=500, detail=result.error)
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Video generation failed: {e}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        guide.status = GuideStatus.READY
+        guide.error_message = str(e)
+        guide.updated_at = datetime.utcnow()
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to start video generation: {str(e)}")
 
 
 @router.get("/status/{guide_id}/{task_id}")

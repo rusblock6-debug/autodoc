@@ -626,10 +626,9 @@ def generate_video_task(
             text = step.edited_text or step.normalized_text
             
             # Генерируем аудио (БЕЗ "Шаг N")
+            # Используем синхронный метод для Celery
             if tts_engine == "edge":
-                # Edge TTS не поддерживает rate и pitch через API
-                # Используем только голос, заданный при создании сервиса
-                audio_path = asyncio.run(tts_service.synthesize(text=text))
+                audio_path = tts_service.synthesize_sync(text=text)
             else:
                 audio_path = tts_service.synthesize_sync(text=text)
             
