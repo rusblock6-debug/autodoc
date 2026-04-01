@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "НИР-Документ",
-  "version": "1.0.0",
-  "description": "Запись экрана и создание гайдов",
+  "version": "2.2.0",
+  "description": "Запись экрана и создание гайдов с паузой, отменой и управлением",
   "permissions": [
     "storage",
     "tabCapture",

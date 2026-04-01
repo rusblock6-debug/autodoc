@@ -77,6 +77,13 @@ async def upload_session(
             except Exception as e:
                 logger.warning(f"Could not parse clicks log: {e}")
         
+        # Проверка: должен быть хотя бы 1 клик
+        if not clicks_data or len(clicks_data) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No clicks recorded. Please record at least one click and try again."
+            )
+        
         # Сохраняем файлы если есть
         video_path = None
         audio_path = None

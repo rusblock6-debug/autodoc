@@ -11,6 +11,9 @@
 // Состояние записи
 let recordingState = {
   isRecording: false,
+  isPaused: false,
+  pauseStartTime: null,
+  totalPausedTime: 0,
   startTime: null,
   sessionName: '',
   clickLog: [],
@@ -45,11 +48,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleStopRecording(message, sendResponse);
       return true;
       
+    case 'PAUSE_RECORDING':
+      handlePauseRecording(sendResponse);
+      return true;
+      
+    case 'RESUME_RECORDING':
+      handleResumeRecording(sendResponse);
+      return true;
+      
+    case 'CANCEL_RECORDING':
+      handleCancelRecording(sendResponse);
+      return true;
+      
+    case 'UNDO_LAST_CLICK':
+      handleUndoLastClick(sendResponse);
+      return true;
+      
     case 'GET_STATE':
       sendResponse({ 
         state: {
           isRecording: recordingState.isRecording,
+          isPaused: recordingState.isPaused,
           startTime: recordingState.startTime,
+          pausedTime: recordingState.totalPausedTime,
           clickCount: recordingState.clickLog.length,
           navigationCount: recordingState.navigationLog.length,
           sessionName: recordingState.sessionName,
@@ -92,6 +113,9 @@ async function handleStartRecording(message, sendResponse) {
     // Сброс состояния
     recordingState = {
       isRecording: true,
+      isPaused: false,
+      pauseStartTime: null,
+      totalPausedTime: 0,
       startTime: Date.now(),
       sessionName: message.sessionName || 'Новый гайд',
       clickLog: [],
@@ -136,6 +160,11 @@ async function handleStopRecording(message, sendResponse) {
   }
   
   try {
+    // Если на паузе, учитываем время паузы
+    if (recordingState.isPaused && recordingState.pauseStartTime) {
+      recordingState.totalPausedTime += Date.now() - recordingState.pauseStartTime;
+    }
+    
     // Обновляем имя если передано
     if (message?.sessionName) {
       console.log('[НИР-Документ] Updating session name to:', message.sessionName);
@@ -152,7 +181,7 @@ async function handleStopRecording(message, sendResponse) {
       session_name: recordingState.sessionName,
       start_time: recordingState.startTime,
       end_time: Date.now(),
-      duration_seconds: (Date.now() - recordingState.startTime) / 1000,
+      duration_seconds: (Date.now() - recordingState.startTime - recordingState.totalPausedTime) / 1000,
       clicks: recordingState.clickLog,
       navigation: recordingState.navigationLog,
       click_count: recordingState.clickLog.length,
@@ -171,6 +200,9 @@ async function handleStopRecording(message, sendResponse) {
     // Сбрасываем состояние
     recordingState = {
       isRecording: false,
+      isPaused: false,
+      pauseStartTime: null,
+      totalPausedTime: 0,
       startTime: null,
       sessionName: '',
       clickLog: [],
@@ -198,15 +230,111 @@ async function handleStopRecording(message, sendResponse) {
   }
 }
 
+async function handlePauseRecording(sendResponse) {
+  if (!recordingState.isRecording || recordingState.isPaused) {
+    sendResponse({ error: 'Cannot pause' });
+    return;
+  }
+  
+  recordingState.isPaused = true;
+  recordingState.pauseStartTime = Date.now();
+  
+  console.log('[НИР-Документ] Recording paused');
+  showNotification('paused', 'НИР-Документ', 'Запись на паузе');
+  
+  sendResponse({ success: true });
+}
+
+async function handleResumeRecording(sendResponse) {
+  if (!recordingState.isRecording || !recordingState.isPaused) {
+    sendResponse({ error: 'Cannot resume' });
+    return;
+  }
+  
+  if (recordingState.pauseStartTime) {
+    recordingState.totalPausedTime += Date.now() - recordingState.pauseStartTime;
+    recordingState.pauseStartTime = null;
+  }
+  
+  recordingState.isPaused = false;
+  
+  console.log('[НИР-Документ] Recording resumed, total paused time:', recordingState.totalPausedTime, 'ms');
+  showNotification('resumed', 'НИР-Документ', 'Запись продолжена');
+  
+  // Уведомляем popup об обновлении времени паузы
+  chrome.runtime.sendMessage({
+    type: 'PAUSED_TIME_UPDATE',
+    pausedTime: recordingState.totalPausedTime
+  }).catch(() => {});
+  
+  sendResponse({ success: true });
+}
+
+async function handleCancelRecording(sendResponse) {
+  if (!recordingState.isRecording) {
+    sendResponse({ error: 'Not recording' });
+    return;
+  }
+  
+  try {
+    await stopRecordingInAllTabs();
+    
+    console.log('[НИР-Документ] Recording cancelled');
+    
+    // Сбрасываем состояние
+    recordingState = {
+      isRecording: false,
+      isPaused: false,
+      pauseStartTime: null,
+      totalPausedTime: 0,
+      startTime: null,
+      sessionName: '',
+      clickLog: [],
+      navigationLog: [],
+      screenshots: [],
+      activeTabId: null,
+      recordingTabs: new Set()
+    };
+    
+    showNotification('cancelled', 'НИР-Документ', 'Запись отменена');
+    sendResponse({ success: true });
+    
+  } catch (error) {
+    console.error('[НИР-Документ] Cancel error:', error);
+    sendResponse({ error: error.message });
+  }
+}
+
+async function handleUndoLastClick(sendResponse) {
+  if (!recordingState.isRecording || recordingState.clickLog.length === 0) {
+    sendResponse({ error: 'Cannot undo' });
+    return;
+  }
+  
+  // Удаляем последний клик и скриншот
+  recordingState.clickLog.pop();
+  recordingState.screenshots.pop();
+  
+  console.log('[НИР-Документ] Undo last click, remaining:', recordingState.clickLog.length);
+  
+  // Обновляем popup
+  chrome.runtime.sendMessage({
+    type: 'CLICK_UPDATE',
+    count: recordingState.clickLog.length
+  }).catch(() => {});
+  
+  sendResponse({ success: true, clickCount: recordingState.clickLog.length });
+}
+
 // ============================================
 // CLICK & NAVIGATION HANDLING
 // ============================================
 
 async function handleClickLog(data, sender) {
-  if (!recordingState.isRecording) return;
+  if (!recordingState.isRecording || recordingState.isPaused) return;
   
   const clickIndex = recordingState.clickLog.length;
-  const timestamp = (Date.now() - recordingState.startTime) / 1000;
+  const timestamp = (Date.now() - recordingState.startTime - recordingState.totalPausedTime) / 1000;
   const tabId = sender.tab?.id;
   
   // Отмечаем вкладку как активную в записи
@@ -286,9 +414,9 @@ async function handleClickLog(data, sender) {
 }
 
 async function handleNavigationLog(data, sender) {
-  if (!recordingState.isRecording) return;
+  if (!recordingState.isRecording || recordingState.isPaused) return;
   
-  const timestamp = (Date.now() - recordingState.startTime) / 1000;
+  const timestamp = (Date.now() - recordingState.startTime - recordingState.totalPausedTime) / 1000;
   const tabId = sender.tab?.id;
   
   // Отмечаем вкладку как активную в записи

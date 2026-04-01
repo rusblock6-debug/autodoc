@@ -1,0 +1,2 @@
+Version 2.0.0 - Updated with pause, cancel, undo features
+Build: 2024-04-01
