@@ -139,6 +139,12 @@ class Settings(BaseSettings):
         description="Название модели для LLM (OpenRouter)"
     )
     
+    # Vision модель для анализа скриншотов
+    VISION_MODEL: str = Field(
+        default="qwen/qwen3.6-plus:free",
+        description="Название Vision модели для анализа изображений (OpenRouter)"
+    )
+    
     # Параметры генерации LLM
     LLM_MAX_TOKENS: int = Field(default=2048, description="Максимальное количество токенов")
     LLM_TEMPERATURE: float = Field(default=0.3, description="Температура генерации")

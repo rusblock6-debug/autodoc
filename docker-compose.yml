@@ -24,6 +24,8 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: autodoc-ai
+    env_file:
+      - .env
     ports:
       - "${API_PORT:-8888}:8000"
     volumes:
@@ -32,17 +34,8 @@ services:
       - whisper_cache:/root/.cache/whisper
       - chatterbox_cache:/root/.cache/huggingface
     environment:
-      - ENVIRONMENT=development
-      - DEBUG=true
       - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=autodoc
-      - DATABASE_PASSWORD=autodoc_secret
-      - DATABASE_NAME=autodoc_db
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      # Локальное хранилище - файлы в /data
-      - STORAGE_BASE_PATH=/data
     depends_on:
       - postgres
       - redis
@@ -107,6 +100,8 @@ services:
       dockerfile: Dockerfile
       target: development
     container_name: autodoc-celery
+    env_file:
+      - .env
     command: celery -A app.celery worker --loglevel=info
     volumes:
       - ./:/workspace/autodoc_ai
@@ -114,17 +109,8 @@ services:
       - whisper_cache:/root/.cache/whisper
       - chatterbox_cache:/root/.cache/huggingface
     environment:
-      - ENVIRONMENT=development
-      - DEBUG=true
       - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=autodoc
-      - DATABASE_PASSWORD=autodoc_secret
-      - DATABASE_NAME=autodoc_db
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      # Локальное хранилище - файлы в /data
-      - STORAGE_BASE_PATH=/data
     depends_on:
       - postgres
       - redis

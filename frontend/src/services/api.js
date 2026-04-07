@@ -65,6 +65,12 @@ export const guidesApi = {
   
   // Удалить гайд
   delete: (guideId) => api.delete(`/guides/${guideId}`),
+  
+  // Запустить AI улучшение
+  enhanceWithAI: (guideId) => api.post(`/guides/${guideId}/enhance-with-ai`),
+  
+  // Получить статус AI обработки
+  getAIStatus: (guideId) => api.get(`/guides/${guideId}/ai-status`),
 }
 
 // === Steps API ===

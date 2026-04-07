@@ -716,3 +716,136 @@ def generate_video_task(
             pass
         
         raise self.retry(exc=e)
+
+
+
+@celery_app.task(name="app.celery_tasks.enhance_guide_with_ai_task", bind=True)
+def enhance_guide_with_ai_task(self, guide_id: int) -> Dict[str, Any]:
+    """
+    Улучшение текста шагов гайда с помощью Vision AI.
+    
+    Для каждого шага:
+    1. Читает скриншот
+    2. Отправляет в Vision AI с координатами клика
+    3. Получает улучшенный текст инструкции
+    4. Обновляет normalized_text в БД
+    
+    Args:
+        guide_id: ID гайда для обработки
+        
+    Returns:
+        Результат обработки
+    """
+    import redis
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    
+    logger.info(f"[AI Enhancement] Starting for guide {guide_id}")
+    
+    # Подключаемся к Redis для прогресса
+    redis_client = redis.from_url(settings.redis_url)
+    
+    # Ключи для хранения прогресса
+    progress_key = f"ai_enhancement:{guide_id}:progress"
+    status_key = f"ai_enhancement:{guide_id}:status"
+    message_key = f"ai_enhancement:{guide_id}:message"
+    
+    try:
+        # Создаем синхронное подключение к БД
+        engine = create_engine(settings.sync_database_url)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        
+        # Получаем гайд и его шаги
+        from app.models import Guide, GuideStep
+        
+        guide = session.query(Guide).filter(Guide.id == guide_id).first()
+        if not guide:
+            raise ValueError(f"Guide {guide_id} not found")
+        
+        steps = session.query(GuideStep).filter(
+            GuideStep.guide_id == guide_id
+        ).order_by(GuideStep.step_number).all()
+        
+        total_steps = len(steps)
+        logger.info(f"[AI Enhancement] Found {total_steps} steps to process")
+        
+        # Устанавливаем начальный статус
+        redis_client.set(status_key, "processing", ex=3600)
+        redis_client.set(progress_key, f"0/{total_steps}", ex=3600)
+        redis_client.set(message_key, "Начинаем обработку...", ex=3600)
+        
+        # Импортируем AI сервис
+        from app.services.ai_service import ai_service
+        
+        # Обрабатываем каждый шаг
+        for i, step in enumerate(steps, 1):
+            logger.info(f"[AI Enhancement] Processing step {i}/{total_steps} (ID: {step.id})")
+            
+            # Обновляем прогресс
+            redis_client.set(progress_key, f"{i-1}/{total_steps}", ex=3600)
+            redis_client.set(message_key, f"Анализируем шаг {i} из {total_steps}...", ex=3600)
+            
+            # Проверяем наличие скриншота
+            if not step.screenshot_path:
+                logger.warning(f"[AI Enhancement] Step {step.id} has no screenshot, skipping")
+                continue
+            
+            # Полный путь к скриншоту
+            screenshot_path = f"/data/{step.screenshot_path}"
+            
+            if not os.path.exists(screenshot_path):
+                logger.warning(f"[AI Enhancement] Screenshot not found: {screenshot_path}")
+                continue
+            
+            try:
+                # Вызываем Vision AI
+                result = ai_service.analyze_screenshot(
+                    screenshot_path=screenshot_path,
+                    click_x=step.click_x,
+                    click_y=step.click_y,
+                    viewport_width=step.screenshot_width,
+                    viewport_height=step.screenshot_height,
+                )
+                
+                # Обновляем текст шага
+                if result and result.get('instruction'):
+                    step.normalized_text = result['instruction']
+                    session.commit()
+                    logger.info(f"[AI Enhancement] Step {step.id} updated: {result['instruction'][:50]}...")
+                else:
+                    logger.warning(f"[AI Enhancement] No instruction returned for step {step.id}")
+                    
+            except Exception as e:
+                logger.error(f"[AI Enhancement] Error processing step {step.id}: {e}")
+                # Продолжаем обработку остальных шагов
+                continue
+        
+        # Финальный статус
+        redis_client.set(progress_key, f"{total_steps}/{total_steps}", ex=3600)
+        redis_client.set(status_key, "completed", ex=3600)
+        redis_client.set(message_key, "Обработка завершена!", ex=3600)
+        
+        session.close()
+        
+        logger.info(f"[AI Enhancement] Completed for guide {guide_id}")
+        
+        return {
+            "success": True,
+            "guide_id": guide_id,
+            "total_steps": total_steps,
+            "message": "AI enhancement completed",
+        }
+        
+    except Exception as e:
+        logger.exception(f"[AI Enhancement] Failed for guide {guide_id}: {e}")
+        
+        # Устанавливаем статус ошибки
+        redis_client.set(status_key, "error", ex=3600)
+        redis_client.set(message_key, f"Ошибка: {str(e)}", ex=3600)
+        
+        return {
+            "success": False,
+            "guide_id": guide_id,
+            "error": str(e),
+        }

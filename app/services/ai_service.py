@@ -891,6 +891,92 @@ class AIService:
             "error": result.error,
         }
     
+    def analyze_screenshot(
+        self,
+        screenshot_path: str,
+        click_x: Optional[float] = None,
+        click_y: Optional[float] = None,
+        viewport_width: Optional[int] = None,
+        viewport_height: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Анализ скриншота с помощью Vision AI для генерации инструкции.
+        
+        Args:
+            screenshot_path: Путь к файлу скриншота
+            click_x: X координата клика (опционально)
+            click_y: Y координата клика (опционально)
+            viewport_width: Ширина viewport (опционально)
+            viewport_height: Высота viewport (опционально)
+            
+        Returns:
+            Dict с ключом 'instruction' содержащим сгенерированную инструкцию
+        """
+        import base64
+        from openai import OpenAI
+        from app.config import settings
+        
+        logger.info(f"Analyzing screenshot: {screenshot_path}")
+        
+        try:
+            # Читаем изображение и конвертируем в base64
+            with open(screenshot_path, "rb") as image_file:
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Формируем промпт
+            prompt = "Опиши, что изображено на этом скриншоте. "
+            
+            if click_x is not None and click_y is not None:
+                prompt += f"Пользователь кликнул в точке ({click_x:.0f}, {click_y:.0f}). "
+                prompt += "Сгенерируй краткую инструкцию (1-2 предложения) о том, что нужно сделать на этом шаге. "
+            else:
+                prompt += "Сгенерируй краткую инструкцию (1-2 предложения) о том, что показано на экране. "
+            
+            prompt += "Отвечай на русском языке."
+            
+            # Инициализируем клиент OpenRouter
+            client = OpenAI(
+                base_url=settings.LLM_API_BASE,
+                api_key=settings.LLM_API_KEY,
+            )
+            
+            # Вызываем Vision модель
+            response = client.chat.completions.create(
+                model=settings.VISION_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_data}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=300,
+                temperature=0.7,
+            )
+            
+            instruction = response.choices[0].message.content.strip()
+            logger.info(f"Generated instruction: {instruction[:100]}...")
+            
+            return {
+                "instruction": instruction,
+                "success": True,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing screenshot: {e}")
+            return {
+                "instruction": None,
+                "success": False,
+                "error": str(e),
+            }
+    
     def close(self) -> None:
         """Освобождение ресурсов."""
         if self.asr:

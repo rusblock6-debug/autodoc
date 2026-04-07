@@ -609,3 +609,110 @@ async def get_guides_stats(
         "by_status": status_counts,
         "by_content_type": content_counts,
     }
+
+
+# === AI Enhancement ===
+
+@router.post("/{guide_id}/enhance-with-ai")
+async def enhance_guide_with_ai(
+    guide_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Запуск AI обработки для улучшения текста шагов гайда.
+    Использует Vision AI для анализа скриншотов и генерации инструкций.
+    """
+    # Проверяем существование гайда
+    query = select(Guide).where(Guide.id == guide_id)
+    result = await db.execute(query)
+    guide = result.scalar_one_or_none()
+    
+    if not guide:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guide {guide_id} not found",
+        )
+    
+    # Проверяем есть ли шаги
+    steps_query = select(func.count()).select_from(GuideStep).where(GuideStep.guide_id == guide_id)
+    steps_count = await db.scalar(steps_query) or 0
+    
+    if steps_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Guide has no steps to enhance",
+        )
+    
+    # Запускаем Celery задачу
+    from app.celery_tasks import enhance_guide_with_ai_task
+    task = enhance_guide_with_ai_task.delay(guide_id)
+    
+    logger.info(f"Started AI enhancement for guide {guide_id}, task_id: {task.id}")
+    
+    return {
+        "success": True,
+        "task_id": task.id,
+        "guide_id": guide_id,
+        "total_steps": steps_count,
+        "message": "AI enhancement started",
+    }
+
+
+@router.get("/{guide_id}/ai-status")
+async def get_ai_enhancement_status(
+    guide_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Получение статуса AI обработки гайда.
+    Возвращает прогресс обработки шагов.
+    """
+    # Проверяем существование гайда
+    query = select(Guide).where(Guide.id == guide_id)
+    result = await db.execute(query)
+    guide = result.scalar_one_or_none()
+    
+    if not guide:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guide {guide_id} not found",
+        )
+    
+    # Получаем статус из Redis
+    from app.celery import celery_app
+    import redis
+    
+    redis_client = redis.from_url(celery_app.conf.broker_url)
+    
+    # Ключ для хранения прогресса
+    progress_key = f"ai_enhancement:{guide_id}:progress"
+    status_key = f"ai_enhancement:{guide_id}:status"
+    message_key = f"ai_enhancement:{guide_id}:message"
+    
+    progress_data = redis_client.get(progress_key)
+    status_data = redis_client.get(status_key)
+    message_data = redis_client.get(message_key)
+    
+    if not progress_data:
+        # Нет активной задачи
+        return {
+            "status": "idle",
+            "current": 0,
+            "total": 0,
+            "message": "No active AI enhancement",
+        }
+    
+    # Парсим прогресс (формат: "2/4")
+    progress_str = progress_data.decode('utf-8')
+    current, total = map(int, progress_str.split('/'))
+    
+    status = status_data.decode('utf-8') if status_data else "processing"
+    message = message_data.decode('utf-8') if message_data else f"Анализируем шаг {current} из {total}..."
+    
+    return {
+        "status": status,
+        "current": current,
+        "total": total,
+        "progress_percent": int((current / total) * 100) if total > 0 else 0,
+        "message": message,
+    }

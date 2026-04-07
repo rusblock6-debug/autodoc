@@ -17,6 +17,10 @@ function StepEditor() {
   const [drawingAnnotation, setDrawingAnnotation] = useState(null)
   const imageRef = useRef(null)
   
+  // AI Enhancement state
+  const [aiModal, setAiModal] = useState({ open: false, progress: 0, total: 0, message: '', status: 'idle' })
+  const aiPollingRef = useRef(null)
+  
   // Вкладки: 'steps' или 'video'
   const [activeTab, setActiveTab] = useState('steps')
   
@@ -294,6 +298,86 @@ function StepEditor() {
     }
   }
 
+  const handleEnhanceWithAI = async () => {
+    if (!guide?.id) return
+    
+    try {
+      // Запускаем AI обработку
+      const response = await guidesApi.enhanceWithAI(guide.id)
+      
+      // Открываем модалку
+      setAiModal({
+        open: true,
+        progress: 0,
+        total: response.total_steps || 0,
+        message: 'Начинаем обработку...',
+        status: 'processing'
+      })
+      
+      // Начинаем polling статуса
+      startAIPolling()
+      
+    } catch (error) {
+      alert('Ошибка запуска AI обработки')
+    }
+  }
+
+  const startAIPolling = () => {
+    // Очищаем предыдущий polling если есть
+    if (aiPollingRef.current) {
+      clearInterval(aiPollingRef.current)
+    }
+    
+    // Небольшая задержка перед первым запросом (даем Celery время записать в Redis)
+    setTimeout(() => {
+      // Polling каждые 2 секунды
+      aiPollingRef.current = setInterval(async () => {
+        try {
+          const status = await guidesApi.getAIStatus(guide.id)
+          
+          setAiModal(prev => ({
+            ...prev,
+            progress: status.current || 0,
+            total: status.total || prev.total,
+            message: status.message || '',
+            status: status.status
+          }))
+          
+          // Если завершено или ошибка - останавливаем polling
+          if (status.status === 'completed' || status.status === 'error') {
+            clearInterval(aiPollingRef.current)
+            aiPollingRef.current = null
+            
+            // Обновляем гайд
+            setTimeout(() => {
+              fetchGuide()
+            }, 2000)
+          }
+          
+        } catch (error) {
+          console.error('AI status polling error:', error)
+        }
+      }, 2000)
+    }, 1000) // Ждем 1 секунду перед первым запросом
+  }
+
+  const closeAIModal = () => {
+    if (aiPollingRef.current) {
+      clearInterval(aiPollingRef.current)
+      aiPollingRef.current = null
+    }
+    setAiModal({ open: false, progress: 0, total: 0, message: '', status: 'idle' })
+  }
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (aiPollingRef.current) {
+        clearInterval(aiPollingRef.current)
+      }
+    }
+  }, [])
+
   // Экспорт в data.json
   const [showExportModal, setShowExportModal] = useState(false)
   const [exportType, setExportType] = useState('descriptive') // 'descriptive' | 'instruction'
@@ -435,6 +519,9 @@ function StepEditor() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {saving && <span style={{ fontSize: '12px', color: '#999' }}>Сохранение...</span>}
+          
+          {/* AI Enhancement Button */}
+          <AIButton onClick={handleEnhanceWithAI} title="Улучшить с помощью AI" />
           
           {/* Кнопки экспорта в data.json - строгие черно-белые */}
           <button 
@@ -703,6 +790,17 @@ function StepEditor() {
         setData={setExportData}
         onSubmit={handleExportSubmit}
       />
+      
+      {/* AI Enhancement Modal */}
+      {aiModal.open && (
+        <AIModal 
+          progress={aiModal.progress}
+          total={aiModal.total}
+          message={aiModal.message}
+          status={aiModal.status}
+          onClose={closeAIModal}
+        />
+      )}
     </div>
   )
 }
@@ -1462,6 +1560,149 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
             )}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// AI Button Component
+function AIButton({ onClick, title }) {
+  const [hover, setHover] = useState(false)
+  
+  return (
+    <button
+      onClick={onClick}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => setHover(false)}
+      title={title}
+      style={{
+        height: '28px',
+        padding: '0 12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: hover ? '#ed8d48' : '#f5f5f5',
+        border: '1px solid',
+        borderColor: hover ? '#ed8d48' : '#d0d0d0',
+        borderRadius: '4px',
+        cursor: 'pointer',
+        fontFamily: 'Montserrat, sans-serif',
+        fontSize: '11px',
+        fontWeight: 600,
+        color: hover ? '#fff' : '#ed8d48',
+        transition: 'all 0.15s',
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px'
+      }}
+    >
+      AI
+    </button>
+  )
+}
+
+// AI Modal Component
+function AIModal({ progress, total, message, status, onClose }) {
+  const progressPercent = total > 0 ? Math.round((progress / total) * 100) : 0
+  
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        backgroundColor: '#fff',
+        borderRadius: '8px',
+        padding: '24px',
+        width: '400px',
+        maxWidth: '90%',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+      }}>
+        <h3 style={{
+          fontFamily: 'Montserrat, sans-serif',
+          fontSize: '16px',
+          fontWeight: 600,
+          color: '#333',
+          marginBottom: '16px',
+          textAlign: 'center'
+        }}>
+          {status === 'completed' ? '✅ Готово!' : status === 'error' ? '❌ Ошибка' : '⏳ Обработка AI...'}
+        </h3>
+        
+        {status === 'processing' && (
+          <>
+            {/* Progress bar */}
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: '#f0f0f0',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              marginBottom: '12px'
+            }}>
+              <div style={{
+                width: `${progressPercent}%`,
+                height: '100%',
+                backgroundColor: '#ed8d48',
+                transition: 'width 0.3s ease'
+              }} />
+            </div>
+            
+            {/* Progress text */}
+            <div style={{
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '14px',
+              fontWeight: 600,
+              color: '#ed8d48',
+              textAlign: 'center',
+              marginBottom: '8px'
+            }}>
+              {progressPercent}% ({progress}/{total})
+            </div>
+          </>
+        )}
+        
+        {/* Message */}
+        <div style={{
+          fontFamily: 'Roboto, sans-serif',
+          fontSize: '13px',
+          color: '#666',
+          textAlign: 'center',
+          marginBottom: '20px'
+        }}>
+          {message}
+        </div>
+        
+        {/* Close button (only when completed or error) */}
+        {(status === 'completed' || status === 'error') && (
+          <button
+            onClick={onClose}
+            style={{
+              width: '100%',
+              padding: '10px',
+              backgroundColor: '#ed8d48',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background-color 0.15s'
+            }}
+            onMouseOver={(e) => e.target.style.backgroundColor = '#e67e38'}
+            onMouseOut={(e) => e.target.style.backgroundColor = '#ed8d48'}
+          >
+            Закрыть
+          </button>
+        )}
       </div>
     </div>
   )
