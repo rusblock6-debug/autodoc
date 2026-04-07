@@ -188,6 +188,38 @@ function StepEditor() {
       if (selectedStep?.id === stepId) setSelectedStep(newSteps[0] || null)
     } catch {}
   }
+  
+  const handleAddStep = async () => {
+    try {
+      const newStep = {
+        guide_id: guide.id,
+        step_number: steps.length + 1,
+        normalized_text: `Новый шаг ${steps.length + 1}`,
+        click_x: 0,
+        click_y: 0,
+        screenshot_path: steps.length > 0 ? steps[steps.length - 1].screenshot_path : null,
+        screenshot_width: steps.length > 0 ? steps[steps.length - 1].screenshot_width : 1920,
+        screenshot_height: steps.length > 0 ? steps[steps.length - 1].screenshot_height : 1080
+      }
+      
+      const response = await fetch(`/api/v1/guides/${guide.id}/steps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newStep)
+      })
+      
+      if (response.ok) {
+        const createdStep = await response.json()
+        const newSteps = [...steps, createdStep]
+        setSteps(newSteps)
+        setSelectedStep(createdStep)
+        setActiveTab('steps')
+        setEditingText(createdStep.id)
+      }
+    } catch (error) {
+      console.error('Failed to add step:', error)
+    }
+  }
 
   const handleMoveStep = async (stepId, direction) => {
     const index = steps.findIndex(s => s.id === stepId)
@@ -581,39 +613,36 @@ function StepEditor() {
 
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Steps sidebar - light */}
-        <div style={{ width: '400px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#6b7280' }}>
-              Шаги
-            </span>
-            {/* Toggle для компактного вида */}
+        {/* Steps sidebar - документация стиль */}
+        <div style={{ width: '380px', backgroundColor: '#fff', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid #ddd', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+            {/* Toggle */}
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-              <span style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'Roboto, sans-serif' }}>
-                Компактно
+              <span style={{ fontSize: '12px', color: '#888', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                Свернуть
               </span>
               <div 
                 onClick={() => setCompactView(!compactView)}
                 style={{
-                  width: '40px',
-                  height: '22px',
-                  backgroundColor: compactView ? '#ed8d48' : '#d1d5db',
-                  borderRadius: '11px',
+                  width: '38px',
+                  height: '20px',
+                  backgroundColor: compactView ? '#ed8d48' : '#ccc',
+                  borderRadius: '10px',
                   position: 'relative',
                   transition: 'background-color 0.2s',
                   cursor: 'pointer'
                 }}
               >
                 <div style={{
-                  width: '18px',
-                  height: '18px',
+                  width: '16px',
+                  height: '16px',
                   backgroundColor: '#fff',
                   borderRadius: '50%',
                   position: 'absolute',
                   top: '2px',
                   left: compactView ? '20px' : '2px',
                   transition: 'left 0.2s',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
                 }} />
               </div>
             </label>
@@ -624,6 +653,49 @@ function StepEditor() {
                 onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
+            
+            {/* Кнопка добавления шага */}
+            <div
+              onClick={handleAddStep}
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #efefef',
+                cursor: 'pointer',
+                backgroundColor: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+            >
+              <div style={{
+                minWidth: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                border: '1px dashed #ccc',
+                backgroundColor: '#fafafa',
+                color: '#999',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '18px',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                fontWeight: 300,
+                flexShrink: 0
+              }}>
+                +
+              </div>
+              <span style={{
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                fontSize: '14px',
+                color: '#999',
+                fontWeight: 400
+              }}>
+                Добавить
+              </span>
+            </div>
             
             {/* ВИДЕО - последний элемент списка */}
             <div
@@ -1132,6 +1204,7 @@ function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeig
 
 function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compactView, onSelect, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }) {
   const [editText, setEditText] = useState(step.edited_text || step.normalized_text || `Шаг ${index + 1}`)
+  const [isHovered, setIsHovered] = useState(false)
   const textareaRef = useRef(null)
 
   useEffect(() => { if (isEditing && textareaRef.current) { textareaRef.current.focus(); textareaRef.current.select() } }, [isEditing])
@@ -1142,51 +1215,45 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
   }
 
   const displayText = step.edited_text || step.normalized_text || `Шаг ${index + 1}`
-  
-  // Активный шаг всегда развернут, остальные зависят от compactView
   const shouldTruncate = compactView && !isSelected
 
   return (
-    <div onClick={onSelect} style={{
-      padding: '16px 20px',
-      borderBottom: '1px solid #f0f0f0',
-      cursor: 'pointer',
-      backgroundColor: isSelected ? 'rgba(237, 141, 72, 0.08)' : '#fff',
-      borderLeft: isSelected ? '4px solid #ed8d48' : '4px solid transparent',
-      transition: 'all 0.2s ease',
-      position: 'relative'
-    }}
-    onMouseEnter={(e) => {
-      if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa'
-    }}
-    onMouseLeave={(e) => {
-      if (!isSelected) e.currentTarget.style.backgroundColor = '#fff'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-        {/* Номер шага - крупнее и ярче */}
+    <div 
+      onClick={onSelect} 
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        padding: '16px 20px',
+        cursor: 'pointer',
+        backgroundColor: isSelected ? '#fffbf5' : (isHovered ? '#fafafa' : '#fff'),
+        borderLeft: isSelected ? '3px solid #ed8d48' : '3px solid transparent',
+        borderBottom: '1px solid #efefef',
+        transition: 'all 0.15s ease',
+        position: 'relative'
+      }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        {/* Элегантный номер */}
         <div style={{
-          width: '32px', 
-          height: '32px', 
-          borderRadius: '8px',
-          background: isSelected 
-            ? 'linear-gradient(135deg, #ed8d48 0%, #f97316 100%)' 
-            : '#e5e7eb',
-          color: isSelected ? '#fff' : '#6b7280',
-          display: 'flex', 
-          alignItems: 'center', 
+          minWidth: '28px',
+          height: '28px',
+          borderRadius: '6px',
+          border: isSelected ? '2px solid #ed8d48' : '1px solid #e0e0e0',
+          backgroundColor: isSelected ? '#fff' : '#fafafa',
+          color: isSelected ? '#ed8d48' : '#999',
+          display: 'flex',
+          alignItems: 'center',
           justifyContent: 'center',
-          fontSize: '14px', 
-          fontFamily: 'Montserrat, sans-serif', 
-          fontWeight: 700, 
+          fontSize: '14px',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontWeight: 600,
           flexShrink: 0,
-          boxShadow: isSelected ? '0 2px 8px rgba(237, 141, 72, 0.3)' : 'none',
-          transition: 'all 0.2s ease'
+          transition: 'all 0.15s ease'
         }}>
           {index + 1}
         </div>
         
         {/* Контент */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, paddingTop: '2px' }}>
           {isEditing ? (
             <div>
               <textarea 
@@ -1196,53 +1263,55 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
                 onKeyDown={handleKeyDown}
                 style={{ 
                   width: '100%', 
-                  padding: '10px 12px', 
-                  fontSize: '14px', 
-                  fontFamily: 'Roboto, sans-serif',
+                  padding: '12px', 
+                  fontSize: '15px', 
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
                   border: '2px solid #ed8d48', 
-                  borderRadius: '8px', 
+                  borderRadius: '6px', 
                   backgroundColor: '#fff', 
-                  color: '#333', 
+                  color: '#2c3e50', 
                   resize: 'vertical', 
                   outline: 'none',
-                  minHeight: '80px',
-                  lineHeight: '1.5'
+                  minHeight: '90px',
+                  lineHeight: '1.6'
                 }} 
               />
-              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onSave(editText) }} 
                   style={{ 
-                    padding: '6px 16px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    backgroundColor: '#10b981', 
+                    padding: '8px 16px', 
+                    fontSize: '14px', 
+                    fontWeight: 500,
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    backgroundColor: '#ed8d48', 
                     color: '#fff', 
                     border: 'none', 
-                    borderRadius: '6px', 
+                    borderRadius: '5px', 
                     cursor: 'pointer',
-                    transition: 'all 0.2s'
+                    transition: 'background-color 0.15s'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dc7a37'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ed8d48'}
                 >
                   Сохранить
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onCancel() }} 
                   style={{ 
-                    padding: '6px 16px', 
-                    fontSize: '12px', 
-                    fontWeight: 600, 
-                    backgroundColor: '#e5e7eb', 
-                    color: '#6b7280', 
-                    border: 'none', 
-                    borderRadius: '6px', 
+                    padding: '8px 16px', 
+                    fontSize: '14px', 
+                    fontWeight: 500,
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    backgroundColor: '#f5f5f5', 
+                    color: '#666', 
+                    border: '1px solid #ddd',
+                    borderRadius: '5px', 
                     cursor: 'pointer',
-                    transition: 'all 0.2s'
+                    transition: 'all 0.15s'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d1d5db'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e5e7eb'}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#eee'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
                 >
                   Отмена
                 </button>
@@ -1250,13 +1319,12 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
             </div>
           ) : (
             <p style={{ 
-              fontFamily: 'Roboto, sans-serif', 
-              fontSize: '14px', 
-              color: '#1f2937', 
+              fontFamily: 'system-ui, -apple-system, sans-serif', 
+              fontSize: '15px',
+              color: isSelected ? '#2c3e50' : '#555', 
               margin: 0, 
-              lineHeight: '1.6',
-              fontWeight: isSelected ? 500 : 400,
-              // Компактный вид: 2 строки с многоточием
+              lineHeight: '1.65',
+              fontWeight: 400,
               ...(shouldTruncate ? {
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
@@ -1270,13 +1338,78 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
           )}
         </div>
         
-        {/* Кнопки действий */}
-        {isSelected && !isEditing && (
-          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-            <SmallBtn onClick={onEdit} icon="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            {!isFirst && <SmallBtn onClick={onMoveUp} icon="M5 15l7-7 7 7" />}
-            {!isLast && <SmallBtn onClick={onMoveDown} icon="M19 9l-7 7-7-7" />}
-            <SmallBtn onClick={onDelete} icon="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" danger />
+        {/* Кнопки - появляются при hover */}
+        {(isHovered || isSelected) && !isEditing && (
+          <div style={{ 
+            display: 'flex', 
+            gap: '4px', 
+            flexShrink: 0,
+            opacity: (isHovered || isSelected) ? 1 : 0,
+            transition: 'opacity 0.15s'
+          }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit() }}
+              style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid #e0e0e0',
+                backgroundColor: '#fff',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                color: '#666',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#ed8d48'
+                e.currentTarget.style.color = '#ed8d48'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e0e0e0'
+                e.currentTarget.style.color = '#666'
+              }}
+              title="Редактировать"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              style={{
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid #e0e0e0',
+                backgroundColor: '#fff',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                color: '#666',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#dc2626'
+                e.currentTarget.style.color = '#dc2626'
+                e.currentTarget.style.backgroundColor = '#fef2f2'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#e0e0e0'
+                e.currentTarget.style.color = '#666'
+                e.currentTarget.style.backgroundColor = '#fff'
+              }}
+              title="Удалить"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
           </div>
         )}
       </div>
