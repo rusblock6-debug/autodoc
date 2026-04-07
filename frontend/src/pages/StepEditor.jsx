@@ -17,6 +17,9 @@ function StepEditor() {
   const [drawingAnnotation, setDrawingAnnotation] = useState(null)
   const imageRef = useRef(null)
   
+  // Компактный вид шагов
+  const [compactView, setCompactView] = useState(true)
+  
   // AI Enhancement state
   const [aiModal, setAiModal] = useState({ open: false, progress: 0, total: 0, message: '', status: 'idle' })
   const aiPollingRef = useRef(null)
@@ -579,13 +582,45 @@ function StepEditor() {
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Steps sidebar - light */}
-        <div style={{ width: '320px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e0e0e0' }}>
-            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#999' }}>Шаги</span>
+        <div style={{ width: '400px', backgroundColor: '#fff', borderRight: '1px solid #e0e0e0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#6b7280' }}>
+              Шаги
+            </span>
+            {/* Toggle для компактного вида */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+              <span style={{ fontSize: '11px', color: '#6b7280', fontFamily: 'Roboto, sans-serif' }}>
+                Компактно
+              </span>
+              <div 
+                onClick={() => setCompactView(!compactView)}
+                style={{
+                  width: '40px',
+                  height: '22px',
+                  backgroundColor: compactView ? '#ed8d48' : '#d1d5db',
+                  borderRadius: '11px',
+                  position: 'relative',
+                  transition: 'background-color 0.2s',
+                  cursor: 'pointer'
+                }}
+              >
+                <div style={{
+                  width: '18px',
+                  height: '18px',
+                  backgroundColor: '#fff',
+                  borderRadius: '50%',
+                  position: 'absolute',
+                  top: '2px',
+                  left: compactView ? '20px' : '2px',
+                  transition: 'left 0.2s',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }} />
+              </div>
+            </label>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {steps.map((step, index) => (
-              <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id && activeTab === 'steps'} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id}
+              <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id && activeTab === 'steps'} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id} compactView={compactView}
                 onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
@@ -1095,7 +1130,7 @@ function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeig
   )
 }
 
-function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, onSelect, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }) {
+function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compactView, onSelect, onEdit, onSave, onCancel, onDelete, onMoveUp, onMoveDown }) {
   const [editText, setEditText] = useState(step.edited_text || step.normalized_text || `Шаг ${index + 1}`)
   const textareaRef = useRef(null)
 
@@ -1107,42 +1142,137 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, onSelec
   }
 
   const displayText = step.edited_text || step.normalized_text || `Шаг ${index + 1}`
+  
+  // Активный шаг всегда развернут, остальные зависят от compactView
+  const shouldTruncate = compactView && !isSelected
 
   return (
     <div onClick={onSelect} style={{
-      padding: '10px 16px',
+      padding: '16px 20px',
       borderBottom: '1px solid #f0f0f0',
       cursor: 'pointer',
       backgroundColor: isSelected ? 'rgba(237, 141, 72, 0.08)' : '#fff',
-      borderLeft: isSelected ? '3px solid #ed8d48' : '3px solid transparent',
-      transition: 'all 0.15s'
+      borderLeft: isSelected ? '4px solid #ed8d48' : '4px solid transparent',
+      transition: 'all 0.2s ease',
+      position: 'relative'
+    }}
+    onMouseEnter={(e) => {
+      if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa'
+    }}
+    onMouseLeave={(e) => {
+      if (!isSelected) e.currentTarget.style.backgroundColor = '#fff'
     }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+        {/* Номер шага - крупнее и ярче */}
         <div style={{
-          width: '22px', height: '22px', borderRadius: '50%',
-          backgroundColor: isSelected ? '#ed8d48' : '#e0e0e0',
-          color: isSelected ? '#fff' : '#666',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '11px', fontFamily: 'Montserrat, sans-serif', fontWeight: 600, flexShrink: 0
+          width: '32px', 
+          height: '32px', 
+          borderRadius: '8px',
+          background: isSelected 
+            ? 'linear-gradient(135deg, #ed8d48 0%, #f97316 100%)' 
+            : '#e5e7eb',
+          color: isSelected ? '#fff' : '#6b7280',
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          fontSize: '14px', 
+          fontFamily: 'Montserrat, sans-serif', 
+          fontWeight: 700, 
+          flexShrink: 0,
+          boxShadow: isSelected ? '0 2px 8px rgba(237, 141, 72, 0.3)' : 'none',
+          transition: 'all 0.2s ease'
         }}>
           {index + 1}
         </div>
+        
+        {/* Контент */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {isEditing ? (
             <div>
-              <textarea ref={textareaRef} value={editText} onChange={(e) => setEditText(e.target.value)} onKeyDown={handleKeyDown}
-                style={{ width: '100%', padding: '6px 8px', fontSize: '12px', border: '1px solid #e0e0e0', borderRadius: '4px', backgroundColor: '#fff', color: '#333', resize: 'none', outline: 'none' }} rows={2} />
-              <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                <button onClick={(e) => { e.stopPropagation(); onSave(editText) }} style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 600, backgroundColor: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>OK</button>
-                <button onClick={(e) => { e.stopPropagation(); onCancel() }} style={{ padding: '4px 10px', fontSize: '10px', fontWeight: 600, backgroundColor: '#e0e0e0', color: '#666', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Отмена</button>
+              <textarea 
+                ref={textareaRef} 
+                value={editText} 
+                onChange={(e) => setEditText(e.target.value)} 
+                onKeyDown={handleKeyDown}
+                style={{ 
+                  width: '100%', 
+                  padding: '10px 12px', 
+                  fontSize: '14px', 
+                  fontFamily: 'Roboto, sans-serif',
+                  border: '2px solid #ed8d48', 
+                  borderRadius: '8px', 
+                  backgroundColor: '#fff', 
+                  color: '#333', 
+                  resize: 'vertical', 
+                  outline: 'none',
+                  minHeight: '80px',
+                  lineHeight: '1.5'
+                }} 
+              />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onSave(editText) }} 
+                  style={{ 
+                    padding: '6px 16px', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    backgroundColor: '#10b981', 
+                    color: '#fff', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+                >
+                  Сохранить
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onCancel() }} 
+                  style={{ 
+                    padding: '6px 16px', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    backgroundColor: '#e5e7eb', 
+                    color: '#6b7280', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d1d5db'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e5e7eb'}
+                >
+                  Отмена
+                </button>
               </div>
             </div>
           ) : (
-            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#333', margin: 0, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{displayText}</p>
+            <p style={{ 
+              fontFamily: 'Roboto, sans-serif', 
+              fontSize: '14px', 
+              color: '#1f2937', 
+              margin: 0, 
+              lineHeight: '1.6',
+              fontWeight: isSelected ? 500 : 400,
+              // Компактный вид: 2 строки с многоточием
+              ...(shouldTruncate ? {
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              } : {})
+            }}>
+              {displayText}
+            </p>
           )}
         </div>
+        
+        {/* Кнопки действий */}
         {isSelected && !isEditing && (
-          <div style={{ display: 'flex', gap: '2px' }}>
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
             <SmallBtn onClick={onEdit} icon="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             {!isFirst && <SmallBtn onClick={onMoveUp} icon="M5 15l7-7 7 7" />}
             {!isLast && <SmallBtn onClick={onMoveDown} icon="M19 9l-7 7-7-7" />}

@@ -386,21 +386,47 @@ function VideoGeneration() {
           </button>
 
           {/* Steps preview */}
-          <div className="bg-gray-800 rounded-xl p-4">
-            <h4 className="font-medium mb-3">Шаги ({guide.steps?.length || 0})</h4>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+          <div className="bg-gray-800 rounded-xl p-6">
+            <h4 className="font-semibold text-lg mb-4 text-white">
+              Шаги ({guide.steps?.length || 0})
+            </h4>
+            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
               {guide.steps?.map((step, index) => (
-                <div key={step.id} className="flex items-start space-x-2 text-sm">
-                  <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center text-xs flex-shrink-0">
-                    {index + 1}
-                  </span>
-                  <span className="text-gray-300 line-clamp-2 flex-1">
-                    {step.edited_text || step.normalized_text}
-                  </span>
+                <div 
+                  key={step.id} 
+                  className="bg-gray-700/50 hover:bg-gray-700 transition-all duration-200 rounded-lg p-4 border border-gray-600/50 hover:border-orange-500/50 group"
+                >
+                  <div className="flex items-start space-x-3">
+                    <span className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform">
+                      {index + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-100 text-base leading-relaxed break-words">
+                        {step.edited_text || step.normalized_text || 'Нет описания'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+          
+          <style jsx>{`
+            .custom-scrollbar::-webkit-scrollbar {
+              width: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track {
+              background: rgba(55, 65, 81, 0.3);
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb {
+              background: rgba(249, 115, 22, 0.5);
+              border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: rgba(249, 115, 22, 0.7);
+            }
+          `}</style>
         </div>
       </div>
     </div>
