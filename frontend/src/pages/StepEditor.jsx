@@ -590,7 +590,7 @@ function StepEditor() {
                 Свернуть
               </span>
               <div 
-                onClick={() => setCompactView(!compactView)}
+                onClick={(e) => { e.preventDefault(); setCompactView(!compactView); }}
                 style={{
                   width: '38px',
                   height: '20px',
@@ -1302,6 +1302,70 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
             </button>
+            
+            {!isFirst && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onMoveUp() }}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid #e0e0e0',
+                  backgroundColor: '#fff',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#ed8d48'
+                  e.currentTarget.style.color = '#ed8d48'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e0e0e0'
+                  e.currentTarget.style.color = '#666'
+                }}
+                title="Переместить вверх"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="18 15 12 9 6 15" />
+                </svg>
+              </button>
+            )}
+            
+            {!isLast && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onMoveDown() }}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid #e0e0e0',
+                  backgroundColor: '#fff',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#ed8d48'
+                  e.currentTarget.style.color = '#ed8d48'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#e0e0e0'
+                  e.currentTarget.style.color = '#666'
+                }}
+                title="Переместить вниз"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            )}
             
             <button
               onClick={(e) => { e.stopPropagation(); onDelete() }}
