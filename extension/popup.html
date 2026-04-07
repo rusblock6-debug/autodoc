@@ -9,7 +9,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            width: 300px;
+            width: 340px;
             font-family: 'Roboto', sans-serif;
             background: #fff;
             color: #333;
@@ -17,7 +17,7 @@
         
         .header {
             background: #fff;
-            padding: 16px 20px;
+            padding: 14px 16px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             align-items: center;
@@ -25,8 +25,8 @@
         }
         
         .header-icon {
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
             background: #ed8d48;
             border-radius: 4px;
             display: flex;
@@ -38,84 +38,32 @@
             color: #fff;
             font-family: 'Montserrat', sans-serif;
             font-weight: 700;
-            font-size: 10px;
+            font-size: 9px;
         }
         
         .header h1 {
             font-family: 'Montserrat', sans-serif;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: #333;
         }
         
         .content {
-            padding: 18px 20px;
-        }
-        
-        .status-panel {
-            background: #fafafa;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
-        }
-        
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 0;
-        }
-        
-        .status-item:not(:last-child) {
-            border-bottom: 1px solid #eee;
-        }
-        
-        .status-label {
-            font-size: 12px;
-            color: #666;
-        }
-        
-        .status-value {
-            font-family: 'Montserrat', sans-serif;
-            font-size: 12px;
-            font-weight: 600;
-            color: #333;
-        }
-        
-        .status-value.recording {
-            color: #ed8d48;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            padding: 14px 16px;
         }
         
         .session-name {
-            margin-bottom: 16px;
-        }
-        
-        .session-name label {
-            display: block;
-            font-family: 'Montserrat', sans-serif;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            color: #666;
-            margin-bottom: 6px;
+            margin-bottom: 12px;
         }
         
         .session-name input {
             width: 100%;
-            padding: 10px 12px;
+            padding: 9px 11px;
             font-family: 'Roboto', sans-serif;
             font-size: 13px;
             color: #333;
             background: #fff;
-            border: 1px solid #e0e0e0;
+            border: 1px solid #d0d0d0;
             border-radius: 4px;
             outline: none;
             transition: border-color 0.2s;
@@ -129,131 +77,150 @@
             color: #999;
         }
         
-        .control-buttons {
+        .status-bar {
             display: flex;
-            gap: 8px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .status-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .status-value {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .status-value.recording {
+            color: #ed8d48;
+        }
+        
+        .toolbar {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 0;
+            border-top: 1px solid #e8e8e8;
+            border-bottom: 1px solid #e8e8e8;
             margin-bottom: 12px;
         }
         
+        .toolbar.hidden {
+            display: none;
+        }
+        
         .btn {
-            flex: 1;
-            padding: 10px 14px;
-            font-family: 'Montserrat', sans-serif;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            padding: 8px 16px;
+            font-family: 'Roboto', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         
-        .btn:hover {
-            opacity: 0.9;
+        .btn:hover:not(:disabled) {
+            opacity: 0.85;
         }
         
-        .btn:active {
-            transform: scale(0.98);
+        .btn:active:not(:disabled) {
+            transform: scale(0.97);
         }
         
         .btn-primary {
             background: #ed8d48;
             color: #fff;
-        }
-        
-        .btn-primary:hover {
-            background: #e67e38;
+            width: 100%;
+            justify-content: center;
+            padding: 10px;
         }
         
         .btn-primary:disabled {
             background: #e0e0e0;
             color: #999;
             cursor: not-allowed;
-            opacity: 1;
-        }
-        
-        .btn-stop {
-            background: #dc3545;
-            color: #fff;
-            font-size: 16px;
-            padding: 10px;
-        }
-        
-        .btn-stop:hover:not(:disabled) {
-            background: #c82333;
-        }
-        
-        .btn-stop:disabled {
-            background: #e0e0e0 !important;
-            color: #999 !important;
-            cursor: not-allowed !important;
-        }
-        
-        .btn-pause {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        .btn-pause:hover {
-            background: #ffb300;
-        }
-        
-        .btn-cancel {
-            background: #6c757d;
-            color: #fff;
-            font-size: 16px;
-            padding: 10px;
-        }
-        
-        .btn-cancel:hover {
-            background: #5a6268;
         }
         
         .btn-icon {
-            padding: 10px;
-            min-width: 44px;
+            width: 36px;
+            height: 36px;
+            padding: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 16px;
-            flex: 0 0 auto;
+            border-radius: 6px;
+            flex-shrink: 0;
         }
         
-        .btn-icon.btn-undo {
-            background: #17a2b8;
-            color: #fff;
-        }
-        
-        .btn-icon.btn-undo:hover {
-            background: #138496;
-        }
-        
-        .btn-icon.btn-mic {
+        .btn-done {
             background: #28a745;
             color: #fff;
+            padding: 8px 14px;
+            font-weight: 600;
         }
         
-        .btn-icon.btn-mic:hover {
+        .btn-done:hover:not(:disabled) {
             background: #218838;
         }
         
+        .btn-done:disabled {
+            background: #d0d0d0;
+            color: #999;
+            cursor: not-allowed;
+        }
+        
+        .btn-pause {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #d0d0d0;
+        }
+        
+        .btn-pause:hover:not(:disabled) {
+            background: #e8e8e8;
+        }
+        
+        .btn-undo {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #d0d0d0;
+        }
+        
+        .btn-undo:hover:not(:disabled) {
+            background: #e8e8e8;
+        }
+        
+        .btn-undo:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .btn-delete {
+            background: #f5f5f5;
+            color: #dc3545;
+            border: 1px solid #d0d0d0;
+        }
+        
+        .btn-delete:hover:not(:disabled) {
+            background: #ffe8e8;
+        }
+        
         .btn:disabled {
-            background: #e0e0e0 !important;
-            color: #999 !important;
-            cursor: not-allowed !important;
-            opacity: 1 !important;
-            transform: none !important;
-        }
-        
-        .recording-controls {
-            display: none;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        
-        .recording-controls.active {
-            display: flex;
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         
         .action-btn {
@@ -261,12 +228,12 @@
             align-items: center;
             gap: 10px;
             width: 100%;
-            padding: 12px 16px;
+            padding: 10px 12px;
             font-family: 'Roboto', sans-serif;
             font-size: 13px;
             color: #333;
             background: #fff;
-            border: 1px solid #e0e0e0;
+            border: 1px solid #d0d0d0;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.2s;
@@ -285,39 +252,27 @@
     </div>
     
     <div class="content">
-        <div class="status-panel">
-            <div class="status-item">
-                <span class="status-label">Статус</span>
-                <span class="status-value" id="status">Готов</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Время</span>
-                <span class="status-value" id="duration">00:00</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Кликов</span>
-                <span class="status-value" id="clickCount">0</span>
-            </div>
-        </div>
-        
         <div class="session-name">
-            <label for="sessionName">Название руководства</label>
-            <input type="text" id="sessionName" placeholder="Например: Как создать документ">
+            <input type="text" id="sessionName" placeholder="Название руководства...">
         </div>
         
-        <div class="control-buttons">
-            <button class="btn btn-primary" id="startBtn">Начать запись</button>
+        <div class="status-bar">
+            <div class="status-left">
+                <span id="status" class="status-value">Готов</span>
+                <span>•</span>
+                <span id="duration">00:00</span>
+                <span>•</span>
+                <span><span id="clickCount">0</span> кликов</span>
+            </div>
         </div>
         
-        <div class="recording-controls" id="recordingControls">
-            <button class="btn btn-pause" id="pauseBtn">⏸ Пауза</button>
-            <button class="btn btn-stop btn-icon" id="stopBtn" title="Остановить запись">⏹</button>
-        </div>
+        <button class="btn btn-primary" id="startBtn">Начать запись</button>
         
-        <div class="recording-controls" id="recordingControls2">
-            <button class="btn btn-icon btn-undo" id="undoBtn" title="Удалить последний клик">↶</button>
-            <button class="btn btn-icon btn-mic" id="micBtn" title="Голосовые заметки (скоро)">🎤</button>
-            <button class="btn btn-cancel btn-icon" id="cancelBtn" title="Отменить запись">✕</button>
+        <div class="toolbar hidden" id="toolbar">
+            <button class="btn btn-done" id="stopBtn" title="Завершить запись">✓ Готово</button>
+            <button class="btn btn-icon btn-pause" id="pauseBtn" title="Пауза">⏸</button>
+            <button class="btn btn-icon btn-undo" id="undoBtn" title="Отменить последний клик">↶</button>
+            <button class="btn btn-icon btn-delete" id="cancelBtn" title="Удалить запись">🗑</button>
         </div>
         
         <button class="action-btn" id="viewGuidesBtn">

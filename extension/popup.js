@@ -33,14 +33,12 @@ class Popup {
       pauseBtn: document.getElementById('pauseBtn'),
       cancelBtn: document.getElementById('cancelBtn'),
       undoBtn: document.getElementById('undoBtn'),
-      micBtn: document.getElementById('micBtn'),
       status: document.getElementById('status'),
       duration: document.getElementById('duration'),
       clickCount: document.getElementById('clickCount'),
       sessionName: document.getElementById('sessionName'),
       viewGuidesBtn: document.getElementById('viewGuidesBtn'),
-      recordingControls: document.getElementById('recordingControls'),
-      recordingControls2: document.getElementById('recordingControls2')
+      toolbar: document.getElementById('toolbar')
     };
   }
   
@@ -50,7 +48,6 @@ class Popup {
     this.el.pauseBtn.addEventListener('click', () => this.togglePause());
     this.el.cancelBtn.addEventListener('click', () => this.cancelRecording());
     this.el.undoBtn.addEventListener('click', () => this.undoLastClick());
-    this.el.micBtn.addEventListener('click', () => this.showMicPlaceholder());
     this.el.viewGuidesBtn.addEventListener('click', () => this.openDashboard());
   }
   
@@ -151,7 +148,7 @@ class Popup {
     console.log('[Popup] Stopping recording with name:', currentName);
     
     this.el.stopBtn.disabled = true;
-    this.el.stopBtn.textContent = '⏹ Сохранение...';
+    this.el.stopBtn.textContent = '⏳ Сохранение...';
     
     this.stopStream();
     
@@ -171,9 +168,9 @@ class Popup {
       
       if (response?.success) {
         const clicks = response.sessionData?.click_count || 0;
-        this.el.status.textContent = `✓ Сохранено (${clicks} кликов)`;
+        this.el.status.textContent = `✓ Сохранено (${clicks})`;
       } else {
-        this.el.status.textContent = 'Ошибка сохранения';
+        this.el.status.textContent = 'Ошибка';
       }
     });
   }
@@ -193,12 +190,14 @@ class Popup {
       
       if (this.state.isPaused) {
         this.stopTimer();
-        this.el.pauseBtn.textContent = '▶ Продолжить';
-        this.el.status.textContent = '⏸ На паузе';
+        this.el.pauseBtn.textContent = '▶';
+        this.el.pauseBtn.title = 'Продолжить';
+        this.el.status.textContent = 'Пауза';
       } else {
         this.startTimer();
-        this.el.pauseBtn.textContent = '⏸ Пауза';
-        this.el.status.textContent = '🔴 Запись...';
+        this.el.pauseBtn.textContent = '⏸';
+        this.el.pauseBtn.title = 'Пауза';
+        this.el.status.textContent = 'Запись';
       }
       
       this.updateUI();
@@ -243,12 +242,9 @@ class Popup {
       if (response?.success) {
         this.state.clickCount = response.clickCount;
         this.el.clickCount.textContent = this.state.clickCount;
+        this.updateUI();
       }
     });
-  }
-  
-  showMicPlaceholder() {
-    alert('🎤 Голосовые заметки\n\nЭта функция будет добавлена в следующей версии!\nВы сможете записывать голосовые комментарии к каждому шагу.');
   }
   
   stopStream() {
@@ -296,20 +292,19 @@ class Popup {
     const { isRecording, isPaused, clickCount } = this.state;
     
     this.el.startBtn.style.display = isRecording ? 'none' : 'block';
-    this.el.recordingControls.classList.toggle('active', isRecording);
-    this.el.recordingControls2.classList.toggle('active', isRecording);
+    this.el.toolbar.classList.toggle('hidden', !isRecording);
     
     if (isRecording) {
       if (isPaused) {
-        this.el.status.textContent = '⏸ На паузе';
+        this.el.status.textContent = 'Пауза';
         this.el.status.classList.remove('recording');
-        this.el.pauseBtn.textContent = '▶ Продолжить';
+        this.el.pauseBtn.textContent = '▶';
+        this.el.pauseBtn.title = 'Продолжить';
       } else {
-        this.el.status.textContent = clickCount === 0 
-          ? '🔴 Запись... (сделайте хотя бы 1 клик)'
-          : '🔴 Запись...';
+        this.el.status.textContent = 'Запись';
         this.el.status.classList.add('recording');
-        this.el.pauseBtn.textContent = '⏸ Пауза';
+        this.el.pauseBtn.textContent = '⏸';
+        this.el.pauseBtn.title = 'Пауза';
       }
       this.el.undoBtn.disabled = clickCount === 0;
       // Блокируем кнопку Stop если нет кликов
@@ -337,7 +332,7 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'CLICK_UPDATE' && window.popup) {
     window.popup.state.clickCount = message.count;
     window.popup.el.clickCount.textContent = message.count;
-    window.popup.el.undoBtn.disabled = message.count === 0;
+    window.popup.updateUI();
   }
   
   if (message.type === 'PAUSED_TIME_UPDATE' && window.popup) {
