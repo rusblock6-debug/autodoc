@@ -168,7 +168,7 @@ class GuideStep(Base):
     click_y: Mapped[int] = mapped_column(Integer, nullable=False)          # Координата Y маркера
     
     # === СКРИНШОТ ===
-    screenshot_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    screenshot_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     screenshot_width: Mapped[int] = mapped_column(Integer, nullable=False)
     screenshot_height: Mapped[int] = mapped_column(Integer, nullable=False)
     

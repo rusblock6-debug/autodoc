@@ -188,38 +188,6 @@ function StepEditor() {
       if (selectedStep?.id === stepId) setSelectedStep(newSteps[0] || null)
     } catch {}
   }
-  
-  const handleAddStep = async () => {
-    try {
-      const newStep = {
-        guide_id: guide.id,
-        step_number: steps.length + 1,
-        normalized_text: `Новый шаг ${steps.length + 1}`,
-        click_x: 0,
-        click_y: 0,
-        screenshot_path: steps.length > 0 ? steps[steps.length - 1].screenshot_path : null,
-        screenshot_width: steps.length > 0 ? steps[steps.length - 1].screenshot_width : 1920,
-        screenshot_height: steps.length > 0 ? steps[steps.length - 1].screenshot_height : 1080
-      }
-      
-      const response = await fetch(`/api/v1/guides/${guide.id}/steps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newStep)
-      })
-      
-      if (response.ok) {
-        const createdStep = await response.json()
-        const newSteps = [...steps, createdStep]
-        setSteps(newSteps)
-        setSelectedStep(createdStep)
-        setActiveTab('steps')
-        setEditingText(createdStep.id)
-      }
-    } catch (error) {
-      console.error('Failed to add step:', error)
-    }
-  }
 
   const handleMoveStep = async (stepId, direction) => {
     const index = steps.findIndex(s => s.id === stepId)
@@ -653,49 +621,6 @@ function StepEditor() {
                 onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
-            
-            {/* Кнопка добавления шага */}
-            <div
-              onClick={handleAddStep}
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid #efefef',
-                cursor: 'pointer',
-                backgroundColor: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '14px',
-                transition: 'all 0.15s ease'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fafafa'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-            >
-              <div style={{
-                minWidth: '28px',
-                height: '28px',
-                borderRadius: '6px',
-                border: '1px dashed #ccc',
-                backgroundColor: '#fafafa',
-                color: '#999',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '18px',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                fontWeight: 300,
-                flexShrink: 0
-              }}>
-                +
-              </div>
-              <span style={{
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                fontSize: '14px',
-                color: '#999',
-                fontWeight: 400
-              }}>
-                Добавить
-              </span>
-            </div>
             
             {/* ВИДЕО - последний элемент списка */}
             <div
