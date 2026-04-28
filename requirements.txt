@@ -19,13 +19,10 @@ celery>=5.3.6
 # OpenAI SDK для API вызовов (OpenRouter, Groq)
 openai>=1.0.0
 
-# PyTorch (опционально - для локального Whisper)
+# PyTorch - для Chatterbox TTS и будущих локальных моделей
 torch>=2.1.0
 torchaudio>=2.1.0
 # numpy удален - Chatterbox требует numpy<1.26.0, установится автоматически
-
-# OpenAI Whisper (локальный fallback)
-openai-whisper>=20231117
 
 # === LOCAL LLM (опционально - fallback) ===
 # llama-cpp-python для локального запуска LLM (если нет API)

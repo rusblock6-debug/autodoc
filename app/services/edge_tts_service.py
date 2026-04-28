@@ -17,11 +17,11 @@ class EdgeTTSService:
     Быстро, качественно, но требует интернет.
     """
     
-    def __init__(self, voice: str = "ru-RU-DmitryNeural", rate: str = "+0%", pitch: str = "+0Hz"):
+    def __init__(self, voice: str = "ru-RU-DmitryNeural", rate: str = "+20%", pitch: str = "+0Hz"):
         """
         Args:
             voice: Голос для озвучки (ru-RU-DmitryNeural или ru-RU-SvetlanaNeural)
-            rate: Скорость речи (например "+50%" или "-25%")
+            rate: Скорость речи (например "+50%" или "-25%"), по умолчанию +20% для более быстрой речи
             pitch: Тембр голоса (например "+10Hz" или "-5Hz")
         """
         self.voice = voice

@@ -45,5 +45,4 @@ data.json
 postgres_data/
 redis_data/
 pgadmin_data/
-whisper_cache/
 chatterbox_cache/

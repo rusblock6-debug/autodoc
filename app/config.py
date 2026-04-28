@@ -123,7 +123,6 @@ class Settings(BaseSettings):
     # 
     # Поддержка внешних API для AI-моделей (бесплатные лимиты):
     # - OpenRouter: LLM (Llama 3.1, Gemma 2 - бесплатно)
-    # - Groq: Whisper ASR (быстрее локального)
     
     # LLM (Logic & Analysis) - через OpenRouter API
     LLM_API_BASE: str = Field(
@@ -149,28 +148,6 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = Field(default=2048, description="Максимальное количество токенов")
     LLM_TEMPERATURE: float = Field(default=0.3, description="Температура генерации")
     LLM_TOP_P: float = Field(default=0.9, description="Top-p sampling")
-    
-    # === Настройки Whisper (ASR) ===
-    WHISPER_API_BASE: str = Field(
-        default="https://api.groq.com/openai/v1",
-        description="URL для Whisper API (Groq или OpenAI)"
-    )
-    WHISPER_API_KEY: str = Field(
-        default="",
-        description="API ключ для Whisper"
-    )
-    WHISPER_MODEL: str = Field(
-        default="whisper-large-v3",
-        description="Модель Whisper (для API: whisper-1 или whisper-large-v3)"
-    )
-    WHISPER_MODEL_SIZE: str = Field(
-        default="medium",
-        description="Размер локальной модели Whisper: tiny/base/small/medium/large-v3"
-    )
-    WHISPER_DEVICE: str = Field(
-        default="cpu",
-        description="Устройство для локального Whisper (cuda/cpu)"
-    )
     
     # Локальная LLM (fallback через llama-cpp-python)
     LLM_MODEL_NAME: str = Field(

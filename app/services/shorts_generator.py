@@ -101,18 +101,15 @@ class ShortsGenerator:
         try:
             # 1. Генерируем TTS и подготавливаем сегменты
             for i, step in enumerate(steps):
-                text = step.get("edited_text") or step.get("normalized_text", "")
+                text = step.get("normalized_text", "")
                 if not text:
                     text = f"Шаг {step.get('step_number', i+1)}"
                 
-                # Формируем полный текст для озвучки
-                full_text = f"Шаг {step.get('step_number', i+1)}. {text}"
-                
-                logger.info(f"Processing step {i+1}/{len(steps)}: {full_text[:50]}...")
+                logger.info(f"Processing step {i+1}/{len(steps)}: {text[:50]}...")
                 logger.info(f"Screenshot path: {step.get('screenshot_path', '')}")
                 
                 # Генерируем TTS через Edge TTS (асинхронный вызов)
-                tts_audio_path = await tts_service.synthesize(text=full_text)
+                tts_audio_path = await tts_service.synthesize(text=text)
                 temp_files.append(tts_audio_path)
                 
                 # Получаем длительность аудио

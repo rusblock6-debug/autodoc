@@ -115,7 +115,6 @@ app = FastAPI(
 
 | Компонент | Технология |
 |-----------|------------|
-| ASR | OpenAI Whisper Large v3 |
 | LLM | Qwen 2.5 (72B) / Llama 3.1 (70B) |
 | TTS | Chatterbox TTS (Neural) |
 | Video | FFmpeg |

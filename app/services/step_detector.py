@@ -186,8 +186,9 @@ def parse_clicks_from_log(clicks_log: Dict[str, Any]) -> List[ClickEvent]:
 
 
 def parse_asr_segments(asr_result: Dict[str, Any]) -> List[SpeechSegment]:
-    """Парсинг сегментов речи из результата Whisper."""
-    segments = []
+    """Парсинг сегментов речи из результата ASR (транскрипция отключена)."""
+    # Whisper удален - метод оставлен для совместимости
+    return []
     
     raw_segments = asr_result.get("segments", [])
     if isinstance(raw_segments, list):

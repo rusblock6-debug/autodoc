@@ -129,7 +129,7 @@ class ShortsGeneratorSync:
         try:
             # 1. Генерируем TTS для всех шагов
             for i, step in enumerate(steps):
-                text = step.get("edited_text") or step.get("normalized_text", "")
+                text = step.get("normalized_text", "")
                 if not text:
                     text = f"Шаг {step.get('step_number', i+1)}"
                 
@@ -147,6 +147,9 @@ class ShortsGeneratorSync:
                 
                 # Получаем длительность
                 duration = tts_service.get_audio_duration(tts_audio_path) or 3.0
+                
+                # Ограничиваем максимальную длительность (макс 15 секунд на шаг)
+                duration = min(duration, 15.0)
                 
                 segment = ShortsSegment(
                     step_number=step.get('step_number', i+1),

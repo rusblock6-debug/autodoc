@@ -31,7 +31,6 @@ services:
     volumes:
       - ./:/workspace/autodoc_ai
       - ./data:/data
-      - whisper_cache:/root/.cache/whisper
       - chatterbox_cache:/root/.cache/huggingface
     environment:
       - DATABASE_HOST=postgres
@@ -106,7 +105,6 @@ services:
     volumes:
       - ./:/workspace/autodoc_ai
       - ./data:/data
-      - whisper_cache:/root/.cache/whisper
       - chatterbox_cache:/root/.cache/huggingface
     environment:
       - DATABASE_HOST=postgres
@@ -141,5 +139,4 @@ volumes:
   postgres_data:
   redis_data:
   pgadmin_data:
-  whisper_cache:
   chatterbox_cache:

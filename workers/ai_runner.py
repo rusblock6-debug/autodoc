@@ -7,8 +7,7 @@ AI Runner - Изолированный subprocess для выполнения AI
 
 Поддерживаемые задачи:
 - video_processing: Обработка видео с зумом и синхронизацией
-- ai_transcription: Транскрипция аудио (Whisper)
-- ai_processing: Полная AI-обработка записи
+- ai_processing: Полная AI-обработка записи (транскрипция отключена)
 - tts_generation: Генерация TTS
 - smart_alignment: Синхронизация речи и действий
 - shorts_generation: Генерация Shorts/Reels
@@ -327,34 +326,18 @@ class ShortsGenerationHandler(TaskHandler):
 class TranscriptionHandler(TaskHandler):
     """
     Обработчик транскрипции аудио.
+    
+    Note: Whisper удален из проекта. Метод оставлен для совместимости.
     """
     
     def execute(self) -> Dict[str, Any]:
-        """Транскрипция аудио через Whisper."""
-        from app.services.ai_service import ai_service
-        from app.config import settings
-        
-        audio_key = self.payload["audio_key"]
-        language = self.payload.get("language", "ru")
-        
-        logger.info(f"Transcribing audio for guide {self.guide_id}")
-        
-        # Скачиваем аудио
-        audio_path = settings.WORKER_TEMP_DIR / f"audio_{self.guide_id}.wav"
-        
-        if not self.download_from_s3(audio_key, audio_path):
-            raise RuntimeError(f"Failed to download audio: {audio_key}")
-        
-        # Транскрибируем
-        result = ai_service.asr.transcribe(str(audio_path), language=language)
-        
-        # Очищаем
-        self.cleanup(audio_path)
+        """Транскрипция отключена (Whisper удален)."""
+        logger.warning("Transcription disabled - Whisper removed from project")
         
         return {
-            "success": True,
+            "success": False,
             "guide_id": self.guide_id,
-            "transcription": result.to_dict() if hasattr(result, "to_dict") else result,
+            "error": "Whisper transcription removed. Use alternative method if needed.",
         }
 
 

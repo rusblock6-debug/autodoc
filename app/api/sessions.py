@@ -187,7 +187,7 @@ async def upload_session(
                     screenshot_width=click.get('viewport_width', 1920),
                     screenshot_height=click.get('viewport_height', 1080),
                     raw_speech=click.get('element_text') or click.get('text') or "",
-                    normalized_text=f"Шаг {i+1}: Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
+                    normalized_text=f"Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
                     created_at=datetime.utcnow()
                 )
                 db.add(step)

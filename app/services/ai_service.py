@@ -3,7 +3,6 @@ AI Service - сервис для работы с нейросетями.
 Обеспечивает ASR (распознавание речи), LLM (логический анализ) и TTS (озвучка).
 
 AI Stack:
-- ASR: OpenAI Whisper (через Groq API или локально)
 - LLM: OpenRouter API (Llama 3.1, Gemma 2 - бесплатно)
 - TTS: Chatterbox TTS (нейронная озвучка с эмоциями)
 """
@@ -47,16 +46,6 @@ class InferenceError(AIServiceError):
 class UnsupportedLanguageError(AIServiceError):
     """Неподдерживаемый язык."""
     pass
-
-
-class WhisperModelSize(str, Enum):
-    """Доступные размеры модели Whisper (для локальной версии)."""
-    TINY = "tiny"
-    BASE = "base"
-    SMALL = "small"
-    MEDIUM = "medium"
-    LARGE = "large-v3"
-    TURBO = "turbo"
 
 
 @dataclass
@@ -133,276 +122,6 @@ class BaseLLMProvider(ABC):
     async def analyze_text(self, text: str, analysis_type: str) -> Dict[str, Any]:
         """Анализ текста определенного типа."""
         pass
-
-
-class WhisperASR:
-    """
-    Модуль Automatic Speech Recognition на базе OpenAI Whisper.
-    
-    Поддерживает:
-    - Groq API (рекомендуется, быстрее локального)
-    - OpenAI API (если есть кредиты)
-    - Локальный Whisper (fallback)
-    
-    ЛЕНИВАЯ ЗАГРУЗКА: модель загружается только при первом использовании.
-    """
-    
-    def __init__(
-        self,
-        api_base: str = None,
-        api_key: str = None,
-        model: str = None,
-        device: str = None,
-    ):
-        """
-        Инициализация ASR-модуля.
-        
-        Args:
-            api_base: URL API (Groq или OpenAI)
-            api_key: API ключ
-            model: Модель Whisper
-            device: Устройство для локальной версии (cuda, cpu)
-        """
-        self.api_base = api_base or settings.WHISPER_API_BASE
-        self.api_key = api_key or settings.WHISPER_API_KEY
-        self.model = model or settings.WHISPER_MODEL
-        self.device = device or getattr(settings, 'WHISPER_DEVICE', 'cpu')
-        
-        self.client = None
-        self._model_loaded = False
-        # НЕ загружаем модель при инициализации!
-    
-    def _ensure_initialized(self) -> None:
-        """Ленивая инициализация - загружаем модель только при первом использовании."""
-        if self._model_loaded:
-            return
-        
-        # Если есть API настройки - используем API
-        if self.api_base and self.api_key:
-            try:
-                from openai import OpenAI
-                base_url = self.api_base.rstrip('/')
-                if not base_url.endswith('/v1'):
-                    base_url += '/v1'
-                self.client = OpenAI(
-                    base_url=base_url,
-                    api_key=self.api_key,
-                )
-                logger.info(f"Whisper API client initialized: {self.api_base}")
-                self._model_loaded = True
-            except Exception as e:
-                logger.error(f"Failed to init API client: {e}")
-                self.client = None
-        
-        if not self._model_loaded:
-            # Fallback на локальный Whisper
-            logger.info("No API config, using local Whisper")
-            self._load_local_model()
-            self._model_loaded = True
-    
-    def _load_local_model(self) -> None:
-        """Загрузка локальной модели Whisper."""
-        try:
-            import whisper
-            model_size = getattr(settings, 'WHISPER_MODEL_SIZE', 'medium')
-            logger.info(f"Loading local Whisper model '{model_size}' on {self.device}")
-            self.model = whisper.load_model(
-                model_size,
-                device=self.device,
-            )
-            logger.info("Local Whisper model loaded")
-        except Exception as e:
-            logger.error(f"Failed to load local Whisper: {e}")
-            raise ModelLoadError(f"Whisper model loading failed: {e}")
-    
-    def transcribe(
-        self,
-        audio_path: str,
-        language: Optional[str] = None,
-        verbose: bool = False,
-        initial_prompt: Optional[str] = None,
-    ) -> TranscriptionResult:
-        """
-        Транскрипция аудиофайла в текст.
-        
-        Args:
-            audio_path: Путь к аудиофайлу
-            language: Язык аудио (опционально)
-            verbose: Подробный вывод
-            initial_prompt: Начальный промпт
-            
-        Returns:
-            TranscriptionResult
-        """
-        if not Path(audio_path).exists():
-            raise InferenceError(f"Audio file not found: {audio_path}")
-        
-        logger.info(f"Starting transcription: {audio_path}")
-        
-        # ЛЕНИВАЯ ЗАГРУЗКА: загружаем модель только сейчас
-        self._ensure_initialized()
-        
-        # Используем API если доступен
-        if self.client:
-            return self._transcribe_api(audio_path, language)
-        else:
-            return self._transcribe_local(audio_path, language)
-    
-    def _transcribe_api(self, audio_path: str, language: Optional[str]) -> TranscriptionResult:
-        """Транскрипция через API."""
-        try:
-            with open(audio_path, "rb") as audio_file:
-                response = self.client.audio.transcriptions.create(
-                    model=self.model or "whisper-1",
-                    file=audio_file,
-                    language=language,
-                    response_format="verbose_json",
-                    timestamp_granularities=["segment", "word"]
-                )
-            
-            # Парсим результат
-            segments = []
-            text_parts = []
-            
-            for i, seg in enumerate(response.segments):
-                segments.append(TranscriptionSegment(
-                    id=i,
-                    start=seg.start,
-                    end=seg.end,
-                    text=seg.text.strip(),
-                    confidence=getattr(seg, 'comprehension_score', 0.9) or 0.9,
-                ))
-                text_parts.append(seg.text)
-            
-            duration = max((s.end for s in segments), default=0.0)
-            
-            return TranscriptionResult(
-                text=" ".join(text_parts),
-                segments=segments,
-                language=getattr(response, 'language', None) or language or "ru",
-                duration=duration,
-                confidence_avg=0.9,
-            )
-            
-        except Exception as e:
-            logger.error(f"API transcription failed: {e}")
-            raise InferenceError(f"ASR API error: {e}")
-    
-    def _transcribe_local(self, audio_path: str, language: Optional[str]) -> TranscriptionResult:
-        """Транскрипция локальной модели Whisper."""
-        import whisper
-        
-        try:
-            options = dict(
-                language=language,
-                verbose=False,
-                best_of=5,
-                beam_size=5,
-                word_timestamps=True,
-                fp16=(self.device == "cuda"),
-            )
-            
-            result = self.model.transcribe(audio_path, **options)
-            segments = self._parse_segments(result.get("segments", []))
-            
-            confidences = [s.confidence for s in segments if s.confidence > 0]
-            confidence_avg = sum(confidences) / len(confidences) if confidences else 0.0
-            
-            detected_language = result.get("language", language or "ru")
-            duration = max((s.end for s in segments), default=0.0)
-            
-            return TranscriptionResult(
-                text=result["text"],
-                segments=segments,
-                language=detected_language,
-                duration=duration,
-                confidence_avg=confidence_avg,
-            )
-            
-        except Exception as e:
-            logger.error(f"Local transcription failed: {e}")
-            raise InferenceError(f"ASR local error: {e}")
-    
-    def _parse_segments(self, whisper_segments: List[Dict]) -> List[TranscriptionSegment]:
-        """Парсинг сегментов из результата Whisper."""
-        parsed = []
-        
-        for i, seg in enumerate(whisper_segments):
-            if isinstance(seg, dict):
-                start = seg.get("start", 0.0)
-                end = seg.get("end", 0.0)
-                text = seg.get("text", "").strip()
-                
-                confidence = seg.get("probability", 0.0)
-                if confidence == 0.0 and seg.get("words"):
-                    word_probs = [w.get("probability", 0.5) for w in seg["words"]]
-                    confidence = sum(word_probs) / len(word_probs) if word_probs else 0.5
-                
-                words = []
-                if seg.get("words"):
-                    for w in seg["words"]:
-                        words.append({
-                            "word": w.get("word", ""),
-                            "start": w.get("start", 0.0),
-                            "end": w.get("end", 0.0),
-                            "probability": w.get("probability", 0.5),
-                        })
-                
-                parsed.append(TranscriptionSegment(
-                    id=i,
-                    start=start,
-                    end=end,
-                    text=text,
-                    confidence=confidence,
-                ))
-            else:
-                try:
-                    parsed.append(TranscriptionSegment(
-                        id=i,
-                        start=seg[0],
-                        end=seg[1],
-                        text=seg[2].strip(),
-                        confidence=0.9,
-                    ))
-                except (IndexError, TypeError):
-                    continue
-        
-        return parsed
-    
-    def transcribe_streaming(
-        self,
-        audio_stream: bytes,
-        chunk_size: int = 4096,
-        language: Optional[str] = None
-    ) -> TranscriptionResult:
-        """
-        Транскрипция потокового аудио.
-        """
-        # ЛЕНИВАЯ ЗАГРУЗКА
-        self._ensure_initialized()
-        
-        temp_dir = getattr(settings, 'TEMP_DIR', '/tmp')
-        Path(temp_dir).mkdir(parents=True, exist_ok=True)
-        temp_audio = Path(temp_dir) / f"stream_{uuid.uuid4().hex}.wav"
-        
-        try:
-            with open(temp_audio, "wb") as f:
-                f.write(audio_stream)
-            
-            return self.transcribe(str(temp_audio), language=language)
-            
-        finally:
-            if temp_audio.exists():
-                temp_audio.unlink()
-    
-    def close(self) -> None:
-        """Освобождение ресурсов модели."""
-        if self.model is not None:
-            del self.model
-            self.model = None
-            
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
 
 class LLMWrapper:
@@ -805,14 +524,12 @@ class AIService:
     Центральный сервис для координации AI-компонентов.
     
     Объединяет:
-    - WhisperASR для распознавания речи
     - LLMWrapper для логического анализа
     - ChatterboxService для нейронной озвучки (отдельный модуль)
     """
     
     def __init__(self):
         """Инициализация AI-сервиса."""
-        self.asr = WhisperASR()
         self.llm = LLMWrapper()
         
         logger.info("AI Service initialized")
@@ -826,50 +543,17 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         Полная обработка записи с генерацией метаданных гайда.
+        
+        Note: Транскрипция аудио отключена (Whisper удален).
+        Метод оставлен для совместимости, но не выполняет полную обработку.
         """
-        logger.info(f"Starting AI processing for: {video_path}")
+        logger.warning("Audio transcription disabled - Whisper removed from project")
+        logger.info(f"AI processing requested for: {video_path}")
         
-        results = {}
-        
-        # 1. Транскрипция аудио
-        logger.info("Step 1: Transcribing audio with Whisper...")
-        transcription = self.asr.transcribe(audio_path, language=language)
-        results["transcription"] = transcription.to_dict()
-        
-        # 2. Генерация названия гайда
-        logger.info("Step 2: Generating guide title...")
-        title = await self.llm.generate_guide_title(transcription.text, language)
-        results["title"] = title
-        
-        # 3. Генерация описаний шагов
-        logger.info("Step 3: Generating step descriptions...")
-        steps = await self.llm.generate_step_descriptions(
-            transcription.text,
-            click_events,
-            language
-        )
-        results["steps"] = steps
-        
-        # 4. Умная синхронизация
-        logger.info("Step 4: Smart alignment...")
-        alignment = await self.llm.smart_align(
-            transcription.segments,
-            click_events,
-            language
-        )
-        results["alignment"] = alignment
-        
-        # 5. Генерация Wiki-контента
-        logger.info("Step 5: Generating Wiki content...")
-        wiki_content = await self.llm.generate_wiki_content(steps, title, language)
-        results["wiki_content"] = wiki_content
-        
-        # 6. Извлечение тегов
-        logger.info("Step 6: Extracting tags...")
-        tags = await self.llm.extract_tags(transcription.text)
-        results["tags"] = tags
-        
-        return results
+        return {
+            "status": "disabled",
+            "message": "Whisper transcription removed. Use alternative transcription method if needed.",
+        }
     
     async def regenerate_step_audio(
         self,
@@ -1008,9 +692,6 @@ class AIService:
     
     def close(self) -> None:
         """Освобождение ресурсов."""
-        if self.asr:
-            self.asr.close()
-        
         logger.info("AI Service closed")
 
 

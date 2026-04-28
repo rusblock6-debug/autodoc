@@ -1,7 +1,48 @@
-# AutoDoc AI System - Production Dockerfile
+# AutoDoc AI System - Dockerfile
 # ===========================================
 
-# Stage 1: Builder with GPU support
+# Development Stage (placed first to avoid CUDA dependency issues)
+FROM python:3.10-slim AS development
+
+WORKDIR /workspace/autodoc_ai
+
+# Install system dependencies (FFmpeg and libraries for OpenCV/video processing + weasyprint)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libglib2.0-0 \
+    libgomp1 \
+    curl \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libfontconfig1 \
+    libcairo2 \
+    libgdk-pixbuf-xlib-2.0-0 \
+    libgtk-3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Install development dependencies (mypy removed due to network issues)
+RUN pip install --no-cache-dir pytest-asyncio black isort
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Entrypoint
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+
+# Stage 1: Builder with GPU support (for production)
 FROM nvidia/cuda:12.2-devel-ubuntu22.04 AS builder
 
 # Install system dependencies
@@ -29,9 +70,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # CRITICAL: Install llama-cpp-python с CUDA поддержкой для GPU
 # Без этого библиотека установится как CPU-only и будет работать медленно!
 RUN CMAKE_ARGS="-DLLAMA_CUBLAS=ON" pip install --no-cache-dir --force-reinstall llama-cpp-python
-
-# Install Whisper model dependencies
-RUN pip install --no-cache-dir openai-whisper
 
 # Stage 2: Production image
 FROM nvidia/cuda:12.2-runtime-ubuntu22.04 AS production
@@ -79,44 +117,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Entrypoint
 ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-
-# Development Dockerfile
-FROM python:3.10-slim AS development
-
-WORKDIR /workspace/autodoc_ai
-
-# Install system dependencies (FFmpeg and libraries for OpenCV/video processing + weasyprint)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libglib2.0-0 \
-    libgomp1 \
-    curl \
-    libpango-1.0-0 \
-    libpangoft2-1.0-0 \
-    libfontconfig1 \
-    libcairo2 \
-    libgdk-pixbuf-xlib-2.0-0 \
-    libgtk-3-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Install development dependencies (mypy removed due to network issues)
-RUN pip install --no-cache-dir pytest-asyncio black isort
-
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Entrypoint
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
