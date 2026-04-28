@@ -27,7 +27,6 @@ function VideoGeneration() {
     edge: [
       { value: 'ru-RU-SvetlanaNeural', label: 'Светлана (женский)' },
       { value: 'ru-RU-DmitryNeural', label: 'Дмитрий (мужской)' },
-      { value: 'ru-RU-DariyaNeural', label: 'Дарья (женский)' },
     ],
     chatterbox: [
       { value: 'neutral', label: 'Нейтральный' },

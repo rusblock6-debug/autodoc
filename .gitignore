@@ -5,6 +5,10 @@ __pycache__/
 .Python
 *.so
 
+# Node.js
+node_modules/
+package-lock.json
+
 # Environment
 .env
 .env.local

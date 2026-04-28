@@ -1581,7 +1581,6 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
     edge: [
       { value: 'ru-RU-SvetlanaNeural', label: 'Светлана' },
       { value: 'ru-RU-DmitryNeural', label: 'Дмитрий' },
-      { value: 'ru-RU-DariyaNeural', label: 'Дарья' },
     ],
     chatterbox: [
       { value: 'neutral', label: 'Нейтральный' },

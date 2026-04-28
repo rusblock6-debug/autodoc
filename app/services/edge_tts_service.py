@@ -4,11 +4,132 @@ Edge TTS Service - быстрая онлайн озвучка от Microsoft
 
 import logging
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 import tempfile
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_text_for_edge_tts(text: str) -> str:
+    """
+    Нормализует текст для Edge TTS, чтобы избежать ошибок синтеза.
+    
+    Проблемы Edge TTS:
+    - Не может озвучить английские слова в ALL CAPS (например "MARKDOWN-ACCESSIBLITY-TABLE")
+    - Плохо работает с техническими терминами и HTML тегами
+    
+    Решение:
+    - Заменяем ALL CAPS английские слова на русскую транслитерацию
+    - Добавляем пробелы между буквами в сложных случаях
+    
+    Args:
+        text: Исходный текст
+        
+    Returns:
+        Нормализованный текст для Edge TTS
+    """
+    # Словарь замен для распространенных HTML тегов и технических терминов
+    replacements = {
+        # HTML теги
+        r'\bMAIN\b': 'мэйн',
+        r'\bDIV\b': 'див',
+        r'\bSPAN\b': 'спан',
+        r'\bBUTTON\b': 'баттон',
+        r'\bINPUT\b': 'инпут',
+        r'\bFORM\b': 'форм',
+        r'\bHEADER\b': 'хэдер',
+        r'\bFOOTER\b': 'футер',
+        r'\bNAV\b': 'нав',
+        r'\bSECTION\b': 'секшн',
+        r'\bARTICLE\b': 'артикл',
+        r'\bASIDE\b': 'эсайд',
+        r'\bTABLE\b': 'тэйбл',
+        r'\bTBODY\b': 'ти боди',
+        r'\bTHEAD\b': 'ти хэд',
+        r'\bTR\b': 'ти ар',
+        r'\bTD\b': 'ти ди',
+        r'\bTH\b': 'ти эйч',
+        r'\bLI\b': 'эл ай',
+        r'\bUL\b': 'ю эл',
+        r'\bOL\b': 'оу эл',
+        r'\bA\b': 'эй',
+        r'\bIMG\b': 'имидж',
+        r'\bP\b': 'пи',
+        r'\bH1\b': 'эйч один',
+        r'\bH2\b': 'эйч два',
+        r'\bH3\b': 'эйч три',
+        r'\bH4\b': 'эйч четыре',
+        r'\bH5\b': 'эйч пять',
+        r'\bH6\b': 'эйч шесть',
+        r'\bPRE\b': 'при',
+        r'\bCODE\b': 'код',
+        r'\bBLOCKQUOTE\b': 'блоккуот',
+        
+        # Markdown и технические термины
+        r'\bMARKDOWN\b': 'маркдаун',
+        r'\bACCESSIBILITY\b': 'аксессибилити',
+        r'\bACCESSIBLITY\b': 'аксессибилити',  # Опечатка в слове (без второй I)
+        r'\bACCESSIBLE\b': 'аксессибл',
+        
+        # Общие слова
+        r'\bCLICK\b': 'клик',
+        r'\bBACK\b': 'бэк',
+        r'\bNEXT\b': 'некст',
+        r'\bSUBMIT\b': 'сабмит',
+        r'\bCANCEL\b': 'кэнсел',
+        r'\bSAVE\b': 'сэйв',
+        r'\bDELETE\b': 'делит',
+        r'\bEDIT\b': 'эдит',
+    }
+    
+    result = text
+    
+    # Применяем известные замены
+    for pattern, replacement in replacements.items():
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    
+    # Обрабатываем оставшиеся ALL CAPS английские слова с дефисами
+    # Например: "MARKDOWN-ACCESSIBLITY-TABLE" -> "маркдаун аксессибилити тэйбл"
+    def replace_caps_with_hyphens(match):
+        word = match.group(0)
+        # Разбиваем по дефисам
+        parts = word.split('-')
+        # Конвертируем каждую часть в lowercase и добавляем пробелы между буквами
+        normalized_parts = []
+        for part in parts:
+            if len(part) <= 3:
+                # Короткие слова - произносим по буквам
+                normalized_parts.append(' '.join(part.lower()))
+            else:
+                # Длинные слова - просто lowercase
+                normalized_parts.append(part.lower())
+        return ' '.join(normalized_parts)
+    
+    # Паттерн для ALL CAPS слов с дефисами (минимум 2 буквы)
+    result = re.sub(r'\b[A-Z]{2,}(?:-[A-Z]{2,})+\b', replace_caps_with_hyphens, result)
+    
+    # Обрабатываем оставшиеся одиночные ALL CAPS слова (минимум 2 буквы)
+    def replace_single_caps(match):
+        word = match.group(0)
+        if len(word) <= 3:
+            # Короткие слова (H3, PRE, DIV) - произносим по буквам
+            return ' '.join(word.lower())
+        else:
+            # Длинные слова - просто lowercase
+            return word.lower()
+    
+    result = re.sub(r'\b[A-Z]{2,}\b', replace_single_caps, result)
+    
+    # Заменяем оставшиеся дефисы между словами на пробелы
+    # Например: "маркдаун-аксессибилити-тэйбл" -> "маркдаун аксессибилити тэйбл"
+    result = re.sub(r'([а-яёa-z]+)-([а-яёa-z]+)', r'\1 \2', result, flags=re.IGNORECASE)
+    # Повторяем для множественных дефисов
+    result = re.sub(r'([а-яёa-z]+)-([а-яёa-z]+)', r'\1 \2', result, flags=re.IGNORECASE)
+    
+    logger.debug(f"Text normalized: '{text}' -> '{result}'")
+    return result
 
 
 class EdgeTTSService:
@@ -47,6 +168,9 @@ class EdgeTTSService:
         try:
             logger.info(f"Synthesizing TTS for text: {text[:50]}...")
             
+            # Нормализуем текст для Edge TTS
+            normalized_text = normalize_text_for_edge_tts(text)
+            
             # Определяем путь для сохранения
             if output_path:
                 save_path = output_path
@@ -59,9 +183,9 @@ class EdgeTTSService:
                 save_path = temp_file.name
                 temp_file.close()
             
-            # Генерируем аудио
+            # Генерируем аудио с нормализованным текстом
             import edge_tts
-            communicate = edge_tts.Communicate(text, self.voice, rate=self.rate, pitch=self.pitch)
+            communicate = edge_tts.Communicate(normalized_text, self.voice, rate=self.rate, pitch=self.pitch)
             await communicate.save(save_path)
             
             logger.info(f"Saved audio to {save_path}")
