@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Response, Header
 from fastapi.responses import FileResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -44,14 +44,28 @@ async def list_guides(
     content_type: Optional[str] = Query(None, description="Фильтр по типу контента"),
     search: Optional[str] = Query(None, description="Поиск по названию"),
     user_id: Optional[int] = Query(None, description="Фильтр по пользователю"),
+    owner_token: Optional[str] = Header(None, alias="X-Owner-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse:
     """
     Получение списка гайдов с пагинацией и фильтрацией.
+
+    Приватность: черновики (status=draft) видны только своему владельцу
+    (по анонимному owner_token из заголовка X-Owner-Token). Готовые гайды
+    видны всем — это общий каталог.
     """
     # Базовый запрос
     query = select(Guide)
-    
+
+    # Черновики приватны: показываем чужие/анонимные черновики только владельцу.
+    if owner_token:
+        query = query.where(
+            or_(Guide.status != GuideStatus.DRAFT, Guide.owner_token == owner_token)
+        )
+    else:
+        # Токена нет — никаких черновиков, только общий каталог.
+        query = query.where(Guide.status != GuideStatus.DRAFT)
+
     # Применяем фильтры
     if status_filter:
         try:
@@ -79,14 +93,29 @@ async def list_guides(
     
     # Пагинация
     offset = (page - 1) * page_size
-    query = query.offset(offset).limit(page_size).order_by(Guide.created_at.desc())
-    
+    # Подгружаем шаги, чтобы отдать превью (первый скриншот) и счётчик шагов
+    query = (
+        query.options(selectinload(Guide.steps))
+        .offset(offset)
+        .limit(page_size)
+        .order_by(Guide.created_at.desc())
+    )
+
     # Выполняем запрос
     result = await db.execute(query)
     guides = result.scalars().all()
-    
+
     # Формируем ответ
-    items = [GuideListResponse.model_validate(g) for g in guides]
+    items = []
+    for g in guides:
+        item = GuideListResponse.model_validate(g)
+        steps = g.steps or []
+        item.step_count = len(steps)
+        # Первый шаг со скриншотом → превью карточки
+        item.thumbnail = next(
+            (s.screenshot_path for s in steps if s.screenshot_path), None
+        )
+        items.append(item)
     total_pages = (total + page_size - 1) // page_size
     
     return PaginatedResponse(
@@ -190,6 +219,7 @@ async def get_guide_by_uuid(
 @router.post("", response_model=GuideDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_guide(
     guide_data: GuideCreate,
+    owner_token: Optional[str] = Header(None, alias="X-Owner-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> GuideDetailResponse:
     """
@@ -197,6 +227,7 @@ async def create_guide(
     """
     guide = Guide(
         uuid=str(uuid4()),
+        owner_token=owner_token,
         title=guide_data.title,
         # description=guide_data.description,  # TODO: Not in MVP model
         language=guide_data.language,

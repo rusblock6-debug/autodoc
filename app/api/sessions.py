@@ -6,12 +6,13 @@ GET /sessions/{id} - получить статус и результаты
 
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, desc
@@ -33,6 +34,7 @@ async def upload_session(
     title: Optional[str] = Form(None),
     duration_seconds: Optional[float] = Form(None),
     click_count: Optional[int] = Form(None),
+    owner_token: Optional[str] = Header(None, alias="X-Owner-Token"),
     db: AsyncSession = Depends(get_db)
 ):
     logger.info(f"Upload: {title}, Screenshots: {len(screenshots)}, Clicks: {click_count}")
@@ -88,7 +90,7 @@ async def upload_session(
         video_path = None
         audio_path = None
         clicks_path = None
-        screenshot_paths = []
+        screenshot_paths = {}  # click_index -> относительный путь к скриншоту
         
         try:
             from app.services.storage import storage_service, StorageType
@@ -121,18 +123,26 @@ async def upload_session(
             
             screenshots_dir = Path("/data/screenshots") / session_uuid
             screenshots_dir.mkdir(parents=True, exist_ok=True)
-            
-            for i, screenshot in enumerate(screenshots):
+
+            # Индекс берём ИЗ ИМЕНИ ФАЙЛА (screenshot_<click_index>.png), а не из
+            # позиции в массиве: расширение не отправляет несостоявшиеся скрины,
+            # поэтому массив uploads уплотнён и позиция != индексу клика. Иначе
+            # все шаги после пропущенного скрина съезжают на один, а последнему
+            # скрина не достаётся вовсе.
+            for upload_index, screenshot in enumerate(screenshots):
                 if screenshot and screenshot.filename:
-                    # Сохраняем локально
-                    local_path = screenshots_dir / f"screenshot_{i}.png"
+                    m = re.search(r'screenshot_(\d+)', screenshot.filename)
+                    click_index = int(m.group(1)) if m else upload_index
+
+                    # Сохраняем локально под индексом клика
+                    local_path = screenshots_dir / f"screenshot_{click_index}.png"
                     screenshot.file.seek(0)
                     with open(local_path, 'wb') as f:
                         shutil.copyfileobj(screenshot.file, f)
-                                
-                    # В БД пишем относительный путь
-                    screenshot_paths.append(f"screenshots/{session_uuid}/screenshot_{i}.png")
-                
+
+                    # В БД пишем относительный путь с привязкой к индексу клика
+                    screenshot_paths[click_index] = f"screenshots/{session_uuid}/screenshot_{click_index}.png"
+
         except Exception as e:
             logger.warning(f"Storage upload failed (continuing without files): {e}")
         
@@ -161,6 +171,7 @@ async def upload_session(
             guide = Guide(
                 uuid=session_uuid,  # Используем тот же UUID что и у сессии
                 session_id=session.id,
+                owner_token=owner_token,  # Привязка черновика к анонимному владельцу
                 title=session.title,
                 language="ru",
                 status=GuideStatus.DRAFT,
@@ -174,9 +185,18 @@ async def upload_session(
             
             # Создаём шаги из кликов
             for i, click in enumerate(clicks_data):
-                # Получаем путь к скриншоту если есть
-                screenshot_path = screenshot_paths[i] if i < len(screenshot_paths) else ""
-                
+                # Скриншот привязан к индексу клика (а не к позиции в загрузке)
+                screenshot_path = screenshot_paths.get(i, "")
+
+                # Временная заглушка до Vision-обработки ("Улучшить с помощью AI").
+                # Предпочитаем подпись элемента (текст кнопки/ссылки) — она информативнее тега.
+                element_text = (click.get('element_text') or click.get('text') or "").strip()
+                element_tag = click.get('element') or click.get('tagName') or 'элемент'
+                if element_text:
+                    placeholder = f"Нажмите «{element_text[:60]}»"
+                else:
+                    placeholder = f"Нажмите на элемент {element_tag}"
+
                 step = GuideStep(
                     guide_id=guide.id,
                     step_number=i + 1,
@@ -186,8 +206,8 @@ async def upload_session(
                     screenshot_path=screenshot_path,
                     screenshot_width=click.get('viewport_width', 1920),
                     screenshot_height=click.get('viewport_height', 1080),
-                    raw_speech=click.get('element_text') or click.get('text') or "",
-                    normalized_text=f"Нажмите на элемент {click.get('element') or click.get('tagName') or 'unknown'}",
+                    raw_speech=element_text,
+                    normalized_text=placeholder,
                     created_at=datetime.utcnow()
                 )
                 db.add(step)

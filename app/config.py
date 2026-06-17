@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, field_validator
 
 
@@ -23,7 +23,13 @@ class Settings(BaseSettings):
     Центральные настройки приложения.
     Все параметры конфигурируются через переменные окружения.
     """
-    
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",  # лишние ключи из .env (MINIO_*, *_HOST_PORT) не валятся
+    )
+
     # === Базовые настройки приложения ===
     APP_NAME: str = "AutoDoc AI System"
     APP_VERSION: str = "1.0.0"
@@ -138,10 +144,19 @@ class Settings(BaseSettings):
         description="Название модели для LLM (OpenRouter)"
     )
     
-    # Vision модель для анализа скриншотов
+    # Vision модель для анализа скриншотов.
+    # Локально через ollama: "qwen2.5vl:3b" (под 8 ГБ VRAM), "qwen2.5vl:7b", "minicpm-v".
+    # Через OpenRouter: "qwen/qwen-2.5-vl-7b-instruct", "google/gemini-2.0-flash-001".
     VISION_MODEL: str = Field(
-        default="qwen/qwen3.6-plus:free",
-        description="Название Vision модели для анализа изображений (OpenRouter)"
+        default="qwen2.5vl:3b",
+        description="Название мультимодальной (Vision) модели для анализа скриншотов"
+    )
+    # Слать ли в модель полный скриншот вместе с увеличенным кропом вокруг клика.
+    # True  — полный скрин (контекст) + кроп: лучше качество, больше VRAM/токенов.
+    # False — только кроп: экономит память (для тяжёлых моделей на 8 ГБ).
+    VISION_SEND_FULL_IMAGE: bool = Field(
+        default=True,
+        description="Отправлять полный скриншот вместе с кропом вокруг клика"
     )
     
     # Параметры генерации LLM
@@ -162,9 +177,25 @@ class Settings(BaseSettings):
     LLM_CONTEXT_SIZE: int = Field(default=4096, description="Контекстное окно локальной LLM")
     LLM_BATCH_SIZE: int = Field(default=512, description="Размер батча для локального инференса")
     
+    # === ASR (Speech-to-Text) - Whisper ===
+    WHISPER_MODEL_SIZE: str = Field(default="medium", description="Размер модели Whisper")
+    WHISPER_DEVICE: str = Field(default="cpu", description="Устройство для Whisper (cpu/cuda)")
+
     # === TTS (Text-to-Speech) ===
     # Используется Chatterbox TTS - бесплатная нейронная озвучка с эмоциональной окраской
     CHATTERBOX_EMOTION: str = Field(default="neutral", description="Эмоция для Chatterbox TTS")
+    TTS_ENGINE: str = Field(default="edge-tts", description="Движок TTS (edge-tts/chatterbox)")
+    EDGE_TTS_VOICE: str = Field(default="ru-RU-SvetlanaNeural", description="Голос Edge TTS")
+
+    # === Security (JWT) ===
+    SECRET_KEY: str = Field(
+        default="change-this-secret-key-in-production",
+        description="Секретный ключ для подписи JWT-токенов",
+    )
+    ALGORITHM: str = Field(default="HS256", description="Алгоритм подписи JWT")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=1440, description="Срок жизни access-токена в минутах"
+    )
     
     # === Настройки видеообработки ===
     VIDEO_OUTPUT_WIDTH: int = Field(default=1920, description="Ширина выходного видео")

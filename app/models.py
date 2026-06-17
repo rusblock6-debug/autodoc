@@ -110,6 +110,10 @@ class Guide(Base):
         index=True
     )
     
+    # Владелец (анонимный): client_id из браузера/расширения.
+    # Используется ТОЛЬКО для приватности черновиков — готовые гайды видны всем.
+    owner_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
     # Флаги
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

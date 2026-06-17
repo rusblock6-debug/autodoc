@@ -71,13 +71,23 @@ async def generate_video(
     if not steps:
         raise HTTPException(status_code=400, detail="No steps in guide")
     
-    # Проверяем, что все шаги имеют скриншоты
-    steps_without_screenshots = [s for s in steps if not s.screenshot_path]
-    
-    if steps_without_screenshots:
+    # Для видео нужен хотя бы один шаг со скриншотом. Шаги без скриншота
+    # генератор пропускает сам (см. shorts_generator_sync), поэтому НЕ валим
+    # весь запрос из-за одного несостоявшегося кадра — иначе единичный
+    # пропущенный скрин блокирует генерацию всего гайда.
+    steps_with_screenshots = [s for s in steps if s.screenshot_path]
+
+    if not steps_with_screenshots:
         raise HTTPException(
             status_code=400,
-            detail=f"{len(steps_without_screenshots)} steps missing screenshots"
+            detail="No steps have screenshots. Re-record the session."
+        )
+
+    missing_count = len(steps) - len(steps_with_screenshots)
+    if missing_count:
+        logger.warning(
+            f"Guide {guide_id}: {missing_count} step(s) without screenshots "
+            f"will be skipped in the video"
         )
     
     # Обновляем статус

@@ -35,9 +35,13 @@ services:
     environment:
       - DATABASE_HOST=postgres
       - REDIS_HOST=redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - autodoc-network
     restart: unless-stopped
@@ -74,10 +78,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     networks:
       - autodoc-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autodoc -d autodoc_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # === Redis for Task Queue ===
   redis:
@@ -91,6 +101,12 @@ services:
     networks:
       - autodoc-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   # === Celery Worker (for background tasks) ===
   celery-worker:
@@ -109,9 +125,13 @@ services:
     environment:
       - DATABASE_HOST=postgres
       - REDIS_HOST=redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - autodoc-network
     restart: unless-stopped

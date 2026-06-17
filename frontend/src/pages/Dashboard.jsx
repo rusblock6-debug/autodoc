@@ -1,17 +1,57 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Link, useOutletContext } from 'react-router-dom'
-import { guidesApi, exportApi } from '../services/api'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useNavigate, useOutletContext } from 'react-router-dom'
+import { guidesApi, exportApi, storageApi } from '../services/api'
+import {
+  Button, IconButton, PageSpinner, EmptyState,
+  StarIcon, EditIcon, CopyIcon, TrashIcon, DownloadIcon, PlayIcon, FileIcon,
+  useToast, useConfirm,
+} from '../ui'
+
+const ORDER_KEY = 'autodoc:guide-order'
+
+// Сохранённый пользователем порядок (localStorage) — пока на бэке нет reorder-эндпоинта.
+const loadOrder = () => {
+  try { return JSON.parse(localStorage.getItem(ORDER_KEY)) || [] } catch { return [] }
+}
+const saveOrder = (ids) => {
+  try { localStorage.setItem(ORDER_KEY, JSON.stringify(ids)) } catch {}
+}
+
+// Применяет сохранённый порядок к списку гайдов (новые — в начало).
+const applyOrder = (list) => {
+  const order = loadOrder()
+  if (!order.length) return list
+  const pos = new Map(order.map((id, i) => [id, i]))
+  return [...list].sort((a, b) => {
+    const pa = pos.has(a.id) ? pos.get(a.id) : -1
+    const pb = pos.has(b.id) ? pos.get(b.id) : -1
+    return pa - pb
+  })
+}
+
+const STATUS_BADGE = {
+  draft: { label: 'Черновик', cls: 'bg-gray-100 text-gray-600' },
+  ready: { label: 'Готов', cls: 'bg-emerald-50 text-emerald-600' },
+  processing: { label: 'Обработка', cls: 'bg-brand-50 text-brand-600' },
+  completed: { label: 'Готов', cls: 'bg-emerald-50 text-emerald-600' },
+}
 
 function Dashboard() {
   const { guides: contextGuides, fetchGuides } = useOutletContext() || {}
+  const navigate = useNavigate()
+  const toast = useToast()
+  const confirm = useConfirm()
+
   const [guides, setGuides] = useState([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('all') // all | favorites | drafts
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
 
   useEffect(() => {
     if (contextGuides) {
-      setGuides(contextGuides)
+      setGuides(applyOrder(contextGuides))
       setLoading(false)
     } else {
       loadGuides()
@@ -21,254 +61,177 @@ function Dashboard() {
   const loadGuides = async () => {
     try {
       const response = await guidesApi.getAll()
-      setGuides(response.items || response || [])
-    } catch (error) {
-      // Игнорируем ошибки
+      setGuides(applyOrder(response.items || response || []))
+    } catch {
+      toast.error('Не удалось загрузить руководства')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDelete = async (guideId, e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!confirm('Удалить это руководство?')) return
+  const refresh = () => (fetchGuides ? fetchGuides() : loadGuides())
+
+  const handleDelete = async (guide, e) => {
+    e?.preventDefault(); e?.stopPropagation()
+    const ok = await confirm({
+      title: 'Удалить руководство',
+      message: `«${guide.title}» будет удалено безвозвратно.`,
+      danger: true, confirmText: 'Удалить',
+    })
+    if (!ok) return
     try {
-      await guidesApi.delete(guideId)
-      if (fetchGuides) fetchGuides()
-      else loadGuides()
-    } catch (error) {
-      // Игнорируем ошибки
+      await guidesApi.delete(guide.id)
+      toast.success('Руководство удалено')
+      refresh()
+    } catch {
+      toast.error('Не удалось удалить')
     }
   }
 
   const handleDuplicate = async (guide, e) => {
-    e.preventDefault()
-    e.stopPropagation()
+    e?.preventDefault(); e?.stopPropagation()
     try {
-      // Создаём копию через API
-      await guidesApi.create({
-        title: `${guide.title} (копия)`,
-        language: guide.language || 'ru'
-      })
-      if (fetchGuides) fetchGuides()
-      else loadGuides()
-    } catch (error) {
-      // Игнорируем ошибки
+      await guidesApi.create({ title: `${guide.title} (копия)`, language: guide.language || 'ru' })
+      toast.success('Создана копия')
+      refresh()
+    } catch {
+      toast.error('Не удалось дублировать')
     }
   }
 
   const handleToggleFavorite = async (guide, e) => {
-    e.preventDefault()
-    e.stopPropagation()
+    e?.preventDefault(); e?.stopPropagation()
+    // Оптимистичное обновление
+    setGuides(prev => prev.map(g => g.id === guide.id ? { ...g, is_favorite: !g.is_favorite } : g))
     try {
       await guidesApi.update(guide.id, { is_favorite: !guide.is_favorite })
-      if (fetchGuides) fetchGuides()
-      else loadGuides()
-    } catch (error) {
-      // Игнорируем ошибки
+    } catch {
+      toast.error('Не удалось обновить избранное')
+      refresh()
     }
   }
 
   const handleExport = async (guide, format, e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
+    e?.preventDefault(); e?.stopPropagation()
     try {
-      let blob, filename
-      
-      switch (format) {
-        case 'pdf':
-          blob = await exportApi.pdf(guide.id)
-          filename = `${guide.title}.pdf`
-          break
-        case 'json':
-          blob = await exportApi.json(guide.id)
-          filename = `${guide.title}.json`
-          break
-        default:
-          return
-      }
-      
-      // Скачиваем файл
+      const blob = format === 'pdf' ? await exportApi.pdf(guide.id) : await exportApi.json(guide.id)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = filename
+      a.download = `${guide.title}.${format}`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      
-    } catch (error) {
-      alert(`Ошибка экспорта в ${format.toUpperCase()}`)
+    } catch {
+      toast.error(`Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }
 
-  // Drag and drop
-  const handleDragStart = (e, guideId) => {
-    setDraggedId(guideId)
-    e.dataTransfer.effectAllowed = 'move'
-  }
-
-  const handleDragOver = (e, guideId) => {
-    e.preventDefault()
-    if (guideId !== draggedId) {
-      setDragOverId(guideId)
-    }
-  }
-
-  const handleDragLeave = () => {
+  // --- Drag & drop (порядок хранится в localStorage) ---
+  const handleDrop = (targetId) => {
     setDragOverId(null)
-  }
-
-  const handleDrop = async (e, targetId) => {
-    e.preventDefault()
-    setDragOverId(null)
-    
-    if (draggedId && targetId && draggedId !== targetId) {
-      const draggedIndex = guides.findIndex(g => g.id === draggedId)
-      const targetIndex = guides.findIndex(g => g.id === targetId)
-      
-      if (draggedIndex !== -1 && targetIndex !== -1) {
-        const newGuides = [...guides]
-        const [dragged] = newGuides.splice(draggedIndex, 1)
-        newGuides.splice(targetIndex, 0, dragged)
-        setGuides(newGuides)
-        
-        // TODO: сохранить порядок на сервере
-        // await guidesApi.reorder(newGuides.map(g => g.id))
-      }
-    }
+    if (!draggedId || !targetId || draggedId === targetId) { setDraggedId(null); return }
+    const di = guides.findIndex(g => g.id === draggedId)
+    const ti = guides.findIndex(g => g.id === targetId)
+    if (di === -1 || ti === -1) { setDraggedId(null); return }
+    const next = [...guides]
+    const [moved] = next.splice(di, 1)
+    next.splice(ti, 0, moved)
+    setGuides(next)
+    saveOrder(next.map(g => g.id))
     setDraggedId(null)
   }
 
-  const handleDragEnd = () => {
-    setDraggedId(null)
-    setDragOverId(null)
-  }
+  const filtered = useMemo(() => {
+    let list = guides
+    if (filter === 'favorites') list = list.filter(g => g.is_favorite)
+    if (filter === 'drafts') list = list.filter(g => g.status === 'draft')
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter(g => g.title?.toLowerCase().includes(q))
+    }
+    return list
+  }, [guides, filter, search])
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
-        <div style={{ width: '24px', height: '24px', border: '2px solid #e0e0e0', borderTopColor: '#ed8d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    )
-  }
+  if (loading) return <PageSpinner label="Загрузка руководств…" />
+
+  const tabs = [
+    { key: 'all', label: 'Все', count: guides.length },
+    { key: 'favorites', label: 'Избранное', count: guides.filter(g => g.is_favorite).length },
+    { key: 'drafts', label: 'Черновики', count: guides.filter(g => g.status === 'draft').length },
+  ]
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="mx-auto max-w-6xl px-8 py-7">
       {/* Header */}
-      <div style={{ marginBottom: '20px' }}>
-        <h1 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '18px', fontWeight: 600, color: '#333', margin: 0 }}>
-          Руководства
-        </h1>
-        <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999', marginTop: '4px' }}>
-          {guides.length} документов
-        </p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-xl font-semibold text-gray-800">Руководства</h1>
+          <p className="mt-0.5 text-sm text-gray-400">{guides.length} документов</p>
+        </div>
+        <div className="relative">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск…"
+            className="h-9 w-64 rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-400"
+          />
+          <svg className="pointer-events-none absolute left-3 top-2.5 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </div>
       </div>
 
-      {guides.length === 0 ? (
-        <div style={{ backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '48px', textAlign: 'center' }}>
-          <h3 style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '14px', fontWeight: 600, color: '#333', marginBottom: '8px' }}>
-            Нет руководств
-          </h3>
-          <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '13px', color: '#666' }}>
-            Начните запись через расширение Chrome
-          </p>
-        </div>
+      {/* Tabs */}
+      <div className="mb-5 flex gap-1 border-b border-gray-200">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setFilter(t.key)}
+            className={[
+              'relative -mb-px px-3 py-2 text-sm font-medium transition-colors',
+              filter === t.key
+                ? 'border-b-2 border-brand-500 text-brand-600'
+                : 'border-b-2 border-transparent text-gray-500 hover:text-gray-700',
+            ].join(' ')}
+          >
+            {t.label}
+            <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">{t.count}</span>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon={FileIcon}
+          title={search || filter !== 'all' ? 'Ничего не найдено' : 'Пока нет руководств'}
+          description={
+            search || filter !== 'all'
+              ? 'Измените запрос или фильтр.'
+              : 'Начните запись через расширение Chrome — гайд появится здесь автоматически.'
+          }
+        />
       ) : (
-        <div style={{ backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', overflow: 'hidden' }}>
-          {/* Table header */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: '40px 1fr 100px 160px', 
-            padding: '8px 12px',
-            backgroundColor: '#fafafa',
-            borderBottom: '1px solid #e0e0e0',
-            fontFamily: 'Montserrat, sans-serif',
-            fontSize: '10px',
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-            color: '#999'
-          }}>
-            <span>№</span>
-            <span>Название</span>
-            <span>Дата</span>
-            <span style={{ textAlign: 'right' }}>Действия</span>
-          </div>
-
-          {/* Table rows */}
-          {guides.map((guide, index) => (
-            <Link
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((guide) => (
+            <GuideCard
               key={guide.id || guide.uuid}
-              to={`/guide/${guide.uuid}/edit`}
-              draggable
-              onDragStart={(e) => handleDragStart(e, guide.id)}
-              onDragOver={(e) => handleDragOver(e, guide.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, guide.id)}
-              onDragEnd={handleDragEnd}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '40px 1fr 100px 160px',
-                padding: '10px 12px',
-                borderBottom: '1px solid #f0f0f0',
-                textDecoration: 'none',
-                color: 'inherit',
-                alignItems: 'center',
-                backgroundColor: dragOverId === guide.id ? 'rgba(237, 141, 72, 0.1)' : (draggedId === guide.id ? '#f5f5f5' : 'transparent'),
-                opacity: draggedId === guide.id ? 0.5 : 1,
-                cursor: 'grab',
-                transition: 'background-color 0.15s'
-              }}
-              onMouseOver={(e) => { if (!draggedId) e.currentTarget.style.backgroundColor = '#fafafa' }}
-              onMouseOut={(e) => { if (!draggedId && dragOverId !== guide.id) e.currentTarget.style.backgroundColor = 'transparent' }}
-            >
-              {/* Number */}
-              <span style={{
-                fontFamily: 'Montserrat, sans-serif',
-                fontSize: '11px',
-                fontWeight: 600,
-                color: '#999'
-              }}>
-                {String(index + 1).padStart(2, '0')}
-              </span>
-
-              {/* Title */}
-              <span style={{
-                fontFamily: 'Roboto, sans-serif',
-                fontSize: '13px',
-                color: '#333',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
-                {guide.title}
-              </span>
-
-              {/* Date */}
-              <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999' }}>
-                {new Date(guide.created_at).toLocaleDateString('ru-RU')}
-              </span>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '2px' }}>
-                <IconButton 
-                  onClick={(e) => handleToggleFavorite(guide, e)} 
-                  title={guide.is_favorite ? 'Убрать из избранного' : 'В избранное'} 
-                  icon="star" 
-                  active={guide.is_favorite}
-                />
-                <IconButton onClick={(e) => { e.preventDefault(); e.stopPropagation() }} title="Редактировать" icon="edit" />
-                <IconButton onClick={(e) => handleDuplicate(guide, e)} title="Дублировать" icon="copy" />
-                <IconButton onClick={(e) => handleExport(guide, 'pdf', e)} title="PDF" icon="download" color="#e53e3e" />
-                <IconButton onClick={(e) => handleExport(guide, 'json', e)} title="JSON" icon="download" color="#3b82f6" />
-                <IconButton onClick={(e) => handleDelete(guide.id, e)} title="Удалить" icon="delete" danger />
-              </div>
-            </Link>
+              guide={guide}
+              onOpen={() => navigate(`/guide/${guide.uuid}/edit`)}
+              onToggleFavorite={(e) => handleToggleFavorite(guide, e)}
+              onDuplicate={(e) => handleDuplicate(guide, e)}
+              onDelete={(e) => handleDelete(guide, e)}
+              onExport={(fmt, e) => handleExport(guide, fmt, e)}
+              draggable={filter === 'all' && !search}
+              isDragging={draggedId === guide.id}
+              isDragOver={dragOverId === guide.id}
+              onDragStart={() => setDraggedId(guide.id)}
+              onDragOver={(e) => { e.preventDefault(); if (guide.id !== draggedId) setDragOverId(guide.id) }}
+              onDragLeave={() => setDragOverId(null)}
+              onDrop={(e) => { e.preventDefault(); handleDrop(guide.id) }}
+              onDragEnd={() => { setDraggedId(null); setDragOverId(null) }}
+            />
           ))}
         </div>
       )}
@@ -276,46 +239,83 @@ function Dashboard() {
   )
 }
 
-function IconButton({ onClick, title, icon, danger, active }) {
-  const [hover, setHover] = useState(false)
-  
-  const icons = {
-    star: 'M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z',
-    edit: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z',
-    copy: 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z',
-    delete: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16'
-  }
-
-  const getColor = () => {
-    if (icon === 'star' && active) return '#ed8d48'
-    if (hover) return danger ? '#d32f2f' : '#ed8d48'
-    return '#bbb'
-  }
+function GuideCard({
+  guide, onOpen, onToggleFavorite, onDuplicate, onDelete, onExport,
+  draggable, isDragging, isDragOver, ...dnd
+}) {
+  const badge = STATUS_BADGE[guide.status] || STATUS_BADGE.draft
+  const thumbUrl = guide.thumbnail ? storageApi.getScreenshotUrl(guide.thumbnail) : null
 
   return (
-    <button
-      onClick={onClick}
-      onMouseOver={() => setHover(true)}
-      onMouseOut={() => setHover(false)}
-      title={title}
-      style={{
-        width: '26px',
-        height: '26px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'transparent',
-        border: 'none',
-        borderRadius: '4px',
-        cursor: 'pointer',
-        color: getColor(),
-        transition: 'all 0.15s'
-      }}
+    <div
+      draggable={draggable}
+      {...dnd}
+      onClick={onOpen}
+      className={[
+        'group relative cursor-pointer overflow-hidden rounded-xl border bg-white shadow-card transition-all duration-150',
+        'hover:-translate-y-0.5 hover:shadow-card-hover',
+        isDragOver ? 'border-brand-400 ring-2 ring-brand-200' : 'border-gray-200',
+        isDragging ? 'opacity-50' : '',
+      ].join(' ')}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill={icon === 'star' && active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d={icons[icon]} />
-      </svg>
-    </button>
+      {/* Thumbnail */}
+      <div className="relative aspect-video w-full overflow-hidden bg-gray-100">
+        {thumbUrl ? (
+          <img src={thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-gray-300">
+            <FileIcon size={40} />
+          </div>
+        )}
+        {/* Play overlay */}
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/20">
+          <span className="flex h-11 w-11 scale-90 items-center justify-center rounded-full bg-white/90 text-brand-600 opacity-0 shadow-md transition-all group-hover:scale-100 group-hover:opacity-100">
+            <PlayIcon size={18} />
+          </span>
+        </div>
+        {/* Favorite */}
+        <button
+          onClick={onToggleFavorite}
+          aria-label={guide.is_favorite ? 'Убрать из избранного' : 'В избранное'}
+          className={[
+            'absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full backdrop-blur transition-colors',
+            guide.is_favorite ? 'bg-white/90 text-brand-500' : 'bg-black/30 text-white hover:bg-black/50',
+          ].join(' ')}
+        >
+          <StarIcon size={16} filled={guide.is_favorite} />
+        </button>
+        {/* Step count */}
+        {guide.step_count > 0 && (
+          <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
+            {guide.step_count} шагов
+          </span>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="line-clamp-2 font-heading text-sm font-semibold text-gray-800">{guide.title}</h3>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>{badge.label}</span>
+        </div>
+        <p className="mt-1 text-xs text-gray-400">
+          {guide.created_at ? new Date(guide.created_at).toLocaleDateString('ru-RU') : ''}
+        </p>
+
+        {/* Actions */}
+        <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
+          <Button variant="secondary" size="sm" icon={EditIcon} onClick={onOpen}>
+            Открыть
+          </Button>
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+            <IconButton icon={CopyIcon} label="Дублировать" size={30} iconSize={15} onClick={onDuplicate} />
+            <IconButton icon={DownloadIcon} label="Скачать PDF" size={30} iconSize={15} onClick={(e) => onExport('pdf', e)} />
+            <IconButton icon={FileIcon} label="Скачать JSON" size={30} iconSize={15} onClick={(e) => onExport('json', e)} />
+            <IconButton icon={TrashIcon} label="Удалить" tone="danger" size={30} iconSize={15} onClick={onDelete} />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -7,6 +7,34 @@ const api = axios.create({
   timeout: 60000,
 })
 
+// === Анонимный владелец (для приватности черновиков) ===
+// Никакого логина: у браузера есть постоянный client_id в localStorage.
+// Бэкенд по нему показывает черновики только их владельцу; готовые гайды общие.
+const OWNER_KEY = 'autodoc:client-id'
+
+export function getOwnerToken() {
+  let id = ''
+  try { id = localStorage.getItem(OWNER_KEY) || '' } catch {}
+  if (!id) {
+    id = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`)
+    try { localStorage.setItem(OWNER_KEY, id) } catch {}
+  }
+  return id
+}
+
+// Расширение открывает гайд как .../guide/<uuid>/edit?owner=<token>.
+// Подхватываем его токен, чтобы веб-приложение «узнало» владельца свежего
+// черновика (у расширения и у сайта изначально разные client_id).
+try {
+  const fromUrl = new URLSearchParams(window.location.search).get('owner')
+  if (fromUrl) localStorage.setItem(OWNER_KEY, fromUrl)
+} catch {}
+
+api.interceptors.request.use((config) => {
+  config.headers['X-Owner-Token'] = getOwnerToken()
+  return config
+})
+
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -122,6 +150,12 @@ export const shortsApi = {
   
   // Получить превью (URL видео)
   getPreview: (guideId) => api.get(`/guides/${guideId}/shorts/preview`),
+}
+
+// === Data JSON API (экспорт в Обзор/Инструкции) ===
+export const dataJsonApi = {
+  addToDescriptive: (data) => api.post('/data-json/add-to-descriptive', data),
+  addToInstruction: (data) => api.post('/data-json/add-to-instruction', data),
 }
 
 // === Export API ===

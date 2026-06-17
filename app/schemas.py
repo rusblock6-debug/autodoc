@@ -231,6 +231,9 @@ class GuideListResponse(BaseModel):
     is_public: bool = False
     is_favorite: bool = False
     view_count: int = 0
+    # Превью для карточек дашборда (путь к скриншоту первого шага) и кол-во шагов
+    thumbnail: Optional[str] = None
+    step_count: int = 0
 
 
 class GuideDetailResponse(BaseModel):

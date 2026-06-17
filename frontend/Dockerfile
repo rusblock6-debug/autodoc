@@ -6,8 +6,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies (npm cache mount ускоряет повторные сборки)
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
 
 # Copy source code
 COPY . .
@@ -26,8 +27,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies (npm cache mount ускоряет повторные сборки)
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
 
 # Copy source code
 COPY . .

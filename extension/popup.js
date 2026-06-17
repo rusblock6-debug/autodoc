@@ -38,10 +38,15 @@ class Popup {
       clickCount: document.getElementById('clickCount'),
       sessionName: document.getElementById('sessionName'),
       viewGuidesBtn: document.getElementById('viewGuidesBtn'),
-      toolbar: document.getElementById('toolbar')
+      toolbar: document.getElementById('toolbar'),
+      settingsBtn: document.getElementById('settingsBtn'),
+      settingsPanel: document.getElementById('settingsPanel'),
+      serverUrl: document.getElementById('serverUrl'),
+      saveServerBtn: document.getElementById('saveServerBtn'),
+      settingsHint: document.getElementById('settingsHint')
     };
   }
-  
+
   bindEvents() {
     this.el.startBtn.addEventListener('click', () => this.startRecording());
     this.el.stopBtn.addEventListener('click', () => this.stopRecording());
@@ -49,6 +54,68 @@ class Popup {
     this.el.cancelBtn.addEventListener('click', () => this.cancelRecording());
     this.el.undoBtn.addEventListener('click', () => this.undoLastClick());
     this.el.viewGuidesBtn.addEventListener('click', () => this.openDashboard());
+    this.el.settingsBtn.addEventListener('click', () => this.toggleSettings());
+    this.el.saveServerBtn.addEventListener('click', () => this.saveServer());
+  }
+
+  // === Настройки адреса сервера ===
+
+  DEFAULT_SERVER = { apiBase: 'http://localhost:8888', frontendUrl: 'http://localhost:3001' };
+
+  async getServerConfig() {
+    try {
+      const { serverConfig } = await chrome.storage.local.get('serverConfig');
+      const strip = (u) => String(u || '').replace(/\/+$/, '');
+      return {
+        apiBase: strip(serverConfig?.apiBase) || this.DEFAULT_SERVER.apiBase,
+        frontendUrl: strip(serverConfig?.frontendUrl) || this.DEFAULT_SERVER.frontendUrl,
+        raw: serverConfig?.serverUrl || ''
+      };
+    } catch {
+      return { ...this.DEFAULT_SERVER, raw: '' };
+    }
+  }
+
+  async toggleSettings() {
+    const panel = this.el.settingsPanel;
+    const willShow = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (willShow) {
+      const cfg = await this.getServerConfig();
+      this.el.serverUrl.value = cfg.raw;
+      this.el.settingsHint.textContent = '';
+    }
+  }
+
+  async saveServer() {
+    const raw = this.el.serverUrl.value.trim();
+    const hint = this.el.settingsHint;
+
+    // Пусто → сбрасываем на дефолт (localhost)
+    if (!raw) {
+      await chrome.storage.local.remove('serverConfig');
+      hint.classList.remove('error');
+      hint.textContent = 'Сброшено на localhost';
+      return;
+    }
+
+    let url;
+    try {
+      url = new URL(raw);
+      if (!/^https?:$/.test(url.protocol)) throw new Error('protocol');
+    } catch {
+      hint.classList.add('error');
+      hint.textContent = 'Неверный URL (нужен http:// или https://)';
+      return;
+    }
+
+    // Единый адрес используется и для API, и для веб-интерфейса (прод за одним доменом)
+    const base = raw.replace(/\/+$/, '');
+    await chrome.storage.local.set({
+      serverConfig: { serverUrl: base, apiBase: base, frontendUrl: base }
+    });
+    hint.classList.remove('error');
+    hint.textContent = 'Сохранено ✓';
   }
   
   async loadState() {
@@ -81,7 +148,7 @@ class Popup {
     const sessionName = this.el.sessionName.value.trim() || 'Новый гайд';
     
     this.el.startBtn.disabled = true;
-    this.el.startBtn.textContent = 'Запуск...';
+    this.el.startBtn.innerHTML = 'Запуск…';
     
     try {
       // Запрашиваем захват экрана
@@ -148,7 +215,7 @@ class Popup {
     console.log('[Popup] Stopping recording with name:', currentName);
     
     this.el.stopBtn.disabled = true;
-    this.el.stopBtn.textContent = '⏳ Сохранение...';
+    this.el.stopBtn.textContent = 'Сохранение…';
     
     this.stopStream();
     
@@ -168,10 +235,13 @@ class Popup {
       
       if (response?.success) {
         const clicks = response.sessionData?.click_count || 0;
-        this.el.status.textContent = `✓ Сохранено (${clicks})`;
+        this.el.status.textContent = `Сохранено · ${clicks}`;
       } else {
         this.el.status.textContent = 'Ошибка';
       }
+      // Возвращаем кнопке исходный вид
+      this.el.stopBtn.disabled = false;
+      this.el.stopBtn.textContent = 'Готово';
     });
   }
   
@@ -190,12 +260,12 @@ class Popup {
       
       if (this.state.isPaused) {
         this.stopTimer();
-        this.el.pauseBtn.textContent = '▶';
+        this.el.pauseBtn.classList.add('is-paused');
         this.el.pauseBtn.title = 'Продолжить';
         this.el.status.textContent = 'Пауза';
       } else {
         this.startTimer();
-        this.el.pauseBtn.textContent = '⏸';
+        this.el.pauseBtn.classList.remove('is-paused');
         this.el.pauseBtn.title = 'Пауза';
         this.el.status.textContent = 'Запись';
       }
@@ -226,6 +296,7 @@ class Popup {
       this.el.duration.textContent = '00:00';
       this.el.clickCount.textContent = '0';
       this.el.status.textContent = 'Готов';
+      this.el.pauseBtn.classList.remove('is-paused');
       this.updateUI();
     });
   }
@@ -256,7 +327,7 @@ class Popup {
   
   resetUI() {
     this.el.startBtn.disabled = false;
-    this.el.startBtn.textContent = 'Начать запись';
+    this.el.startBtn.innerHTML = '<span class="rec-dot"></span>Начать запись';
   }
   
   startTimer() {
@@ -291,19 +362,19 @@ class Popup {
   updateUI() {
     const { isRecording, isPaused, clickCount } = this.state;
     
-    this.el.startBtn.style.display = isRecording ? 'none' : 'block';
+    this.el.startBtn.style.display = isRecording ? 'none' : 'inline-flex';
     this.el.toolbar.classList.toggle('hidden', !isRecording);
-    
+
     if (isRecording) {
       if (isPaused) {
         this.el.status.textContent = 'Пауза';
         this.el.status.classList.remove('recording');
-        this.el.pauseBtn.textContent = '▶';
+        this.el.pauseBtn.classList.add('is-paused');
         this.el.pauseBtn.title = 'Продолжить';
       } else {
         this.el.status.textContent = 'Запись';
         this.el.status.classList.add('recording');
-        this.el.pauseBtn.textContent = '⏸';
+        this.el.pauseBtn.classList.remove('is-paused');
         this.el.pauseBtn.title = 'Пауза';
       }
       this.el.undoBtn.disabled = clickCount === 0;
@@ -317,8 +388,9 @@ class Popup {
     this.el.clickCount.textContent = clickCount;
   }
   
-  openDashboard() {
-    chrome.tabs.create({ url: 'http://localhost:3000' });
+  async openDashboard() {
+    const { frontendUrl } = await this.getServerConfig();
+    chrome.tabs.create({ url: frontendUrl });
   }
 }
 

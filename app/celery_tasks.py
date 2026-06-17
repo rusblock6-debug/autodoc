@@ -777,63 +777,88 @@ def enhance_guide_with_ai_task(self, guide_id: int) -> Dict[str, Any]:
         
         # Импортируем AI сервис
         from app.services.ai_service import ai_service
-        
+
+        succeeded = 0
+        failed = 0
+        last_error = None
+
         # Обрабатываем каждый шаг
         for i, step in enumerate(steps, 1):
             logger.info(f"[AI Enhancement] Processing step {i}/{total_steps} (ID: {step.id})")
-            
+
             # Обновляем прогресс
             redis_client.set(progress_key, f"{i-1}/{total_steps}", ex=3600)
             redis_client.set(message_key, f"Анализируем шаг {i} из {total_steps}...", ex=3600)
-            
+
             # Проверяем наличие скриншота
             if not step.screenshot_path:
                 logger.warning(f"[AI Enhancement] Step {step.id} has no screenshot, skipping")
+                failed += 1
+                last_error = "no screenshot"
                 continue
-            
+
             # Полный путь к скриншоту
             screenshot_path = f"/data/{step.screenshot_path}"
-            
+
             if not os.path.exists(screenshot_path):
                 logger.warning(f"[AI Enhancement] Screenshot not found: {screenshot_path}")
+                failed += 1
+                last_error = "screenshot file missing"
                 continue
-            
+
             try:
-                # Вызываем Vision AI
+                # Вызываем Vision AI. Текст элемента (raw_speech) — подсказка модели.
                 result = ai_service.analyze_screenshot(
                     screenshot_path=screenshot_path,
                     click_x=step.click_x,
                     click_y=step.click_y,
                     viewport_width=step.screenshot_width,
                     viewport_height=step.screenshot_height,
+                    element_hint=step.raw_speech,
                 )
-                
+
                 # Обновляем текст шага
                 if result and result.get('instruction'):
                     step.normalized_text = result['instruction']
                     session.commit()
+                    succeeded += 1
                     logger.info(f"[AI Enhancement] Step {step.id} updated: {result['instruction'][:50]}...")
                 else:
-                    logger.warning(f"[AI Enhancement] No instruction returned for step {step.id}")
-                    
+                    failed += 1
+                    last_error = (result or {}).get('error') or "no instruction returned"
+                    logger.warning(f"[AI Enhancement] Step {step.id} not updated: {last_error}")
+
             except Exception as e:
                 logger.error(f"[AI Enhancement] Error processing step {step.id}: {e}")
+                failed += 1
+                last_error = str(e)
                 # Продолжаем обработку остальных шагов
                 continue
-        
+
         # Финальный статус
         redis_client.set(progress_key, f"{total_steps}/{total_steps}", ex=3600)
-        redis_client.set(status_key, "completed", ex=3600)
-        redis_client.set(message_key, "Обработка завершена!", ex=3600)
+        if succeeded == 0 and failed > 0:
+            # Ни один шаг не улучшен — это ошибка конфигурации, а не успех
+            redis_client.set(status_key, "error", ex=3600)
+            redis_client.set(message_key, f"Не удалось улучшить ни одного шага. Причина: {last_error}", ex=3600)
+        else:
+            redis_client.set(status_key, "completed", ex=3600)
+            done_msg = f"Готово: обновлено {succeeded} из {total_steps}"
+            if failed:
+                done_msg += f" (пропущено {failed}: {last_error})"
+            redis_client.set(message_key, done_msg, ex=3600)
         
         session.close()
         
         logger.info(f"[AI Enhancement] Completed for guide {guide_id}")
         
         return {
-            "success": True,
+            "success": succeeded > 0,
             "guide_id": guide_id,
             "total_steps": total_steps,
+            "updated_steps": succeeded,
+            "failed_steps": failed,
+            "last_error": last_error,
             "message": "AI enhancement completed",
         }
         

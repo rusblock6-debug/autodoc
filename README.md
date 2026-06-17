@@ -30,6 +30,54 @@ docker-compose up -d
    - Нажмите на название гайда в редакторе для изменения
    - Используйте Enter для сохранения, Escape для отмены
 
+## 🤖 AI / Vision — описания шагов
+
+Тексты шагов («Нажмите кнопку …») генерирует мультимодальная (Vision) модель, которая
+смотрит на скриншот клика. **Это отдельный prerequisite: модель крутится в [ollama](https://ollama.com),
+а НЕ внутри docker-стека.** Без неё шаги останутся с заглушкой «Нажмите на элемент <тег>».
+
+**Как поднять:**
+
+1. Установить ollama на хост (там, где есть GPU) и скачать модель:
+
+   ```bash
+   # Локальная разработка (GPU ~8 ГБ VRAM, напр. RTX 4060 Ti):
+   ollama pull qwen2.5vl:3b
+
+   # Сервер с мощным GPU (A100 и т.п.) — точнее описания:
+   ollama pull qwen2.5vl:7b      # или :32b / :72b
+   ```
+
+2. Указать модель и адрес ollama в `.env`:
+
+   ```env
+   LLM_API_BASE=http://host.docker.internal:11434/v1   # OpenAI-совместимый эндпоинт ollama
+   LLM_API_KEY=ollama                                   # любое непустое значение
+   VISION_MODEL=qwen2.5vl:3b                             # на сервере — 7b/32b
+   VISION_SEND_FULL_IMAGE=true                           # false = слать только кроп (экономит VRAM)
+   ```
+
+   - `host.docker.internal` резолвится автоматически на Docker Desktop; на Linux работает
+     через `extra_hosts: host-gateway` (уже прописано в `docker-compose.yml`).
+   - Запустить ollama на стандартном хост-порту `11434` (модель хранится в ollama, к
+     контейнерам не привязана — пересоздание контейнеров её не перекачивает).
+
+3. После правки `.env` пересоздать backend и worker, чтобы подхватили переменные:
+
+   ```bash
+   docker compose up -d autodoc-ai celery-worker
+   ```
+
+4. В редакторе гайда нажать **«Улучшить с помощью AI»** — запускается анализ скриншотов
+   (vision видит маркер клика + увеличенный фрагмент вокруг него). Прогресс виден в UI.
+
+**Проверка, что vision реально доступен из контейнера:**
+
+```bash
+docker exec autodoc-celery printenv LLM_API_BASE VISION_MODEL
+docker exec autodoc-celery python -c "import urllib.request as u; print(u.urlopen('http://host.docker.internal:11434/api/tags',timeout=5).status)"  # ждём 200
+```
+
 ## 📋 Если что-то не работает
 
 Смотрите подробную диагностику в [Documentation/EXTENSION_DEBUG_GUIDE.md](Documentation/EXTENSION_DEBUG_GUIDE.md)

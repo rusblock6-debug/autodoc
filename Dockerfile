@@ -24,12 +24,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+# BuildKit cache mount: скачанные wheel'ы (torch/chatterbox/opencv ~ГБ) переживают
+# пересборку и даже --no-cache образа, поэтому больше НЕ перекачиваются каждый раз.
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # Install development dependencies (mypy removed due to network issues)
-RUN pip install --no-cache-dir pytest-asyncio black isort
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install pytest-asyncio black isort
 
 # Expose port
 EXPOSE 8000
@@ -64,12 +68,14 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r /tmp/requirements.txt
 
 # CRITICAL: Install llama-cpp-python с CUDA поддержкой для GPU
 # Без этого библиотека установится как CPU-only и будет работать медленно!
-RUN CMAKE_ARGS="-DLLAMA_CUBLAS=ON" pip install --no-cache-dir --force-reinstall llama-cpp-python
+RUN --mount=type=cache,target=/root/.cache/pip \
+    CMAKE_ARGS="-DLLAMA_CUBLAS=ON" pip install --force-reinstall llama-cpp-python
 
 # Stage 2: Production image
 FROM nvidia/cuda:12.2-runtime-ubuntu22.04 AS production

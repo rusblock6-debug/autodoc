@@ -11,6 +11,7 @@ import json
 import tempfile
 import os
 import base64
+from html import escape
 from typing import Optional
 from datetime import datetime
 
@@ -404,6 +405,22 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
                 </div>
                 """
         
+        # Блок-легенда: расшифровка подписанных выделений (нумерация = как на скриншоте)
+        legend_html = ""
+        labeled = [
+            (i + 1, a) for i, a in enumerate(step.annotations or [])
+            if isinstance(a, dict) and (a.get('label') or '').strip()
+        ]
+        if labeled:
+            items = "".join(
+                f'<li>'
+                f'<span class="legend-num" style="background:{escape(str(a.get("color") or "#ed8d48"))}">{n}</span>'
+                f'<span class="legend-text">{escape(a["label"])}</span>'
+                f'</li>'
+                for n, a in labeled
+            )
+            legend_html = f'<div class="legend"><div class="legend-title">Легенда</div><ul>{items}</ul></div>'
+
         steps_html += f"""
         <div class="step">
             <div class="step-header">
@@ -411,6 +428,7 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
                 <h3>Шаг {step.step_number}</h3>
             </div>
             {screenshot_html}
+            {legend_html}
             <div class="step-text">
                 <p>{step.final_text or f'Шаг {step.step_number}'}</p>
             </div>
@@ -682,6 +700,56 @@ def _get_pdf_css() -> str:
         z-index: 3;
     }
     
+    .legend {
+        margin-top: 12px;
+        padding: 12px 16px;
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+    }
+
+    .legend-title {
+        font-family: 'Montserrat', sans-serif;
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #999;
+        margin-bottom: 8px;
+    }
+
+    .legend ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .legend li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+
+    .legend-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        color: #fff;
+        font-family: 'Montserrat', sans-serif;
+        font-size: 12px;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+
+    .legend-text {
+        font-size: 13px;
+        color: #333;
+    }
+
     .step-text {
         background: #fafafa;
         border: 1px solid #e0e0e0;
@@ -782,7 +850,9 @@ def _get_screenshot_base64(screenshot_path: str, annotations: list = None, marke
                 screenshot_path=str(full_path),
                 annotations=annotations,
                 marker_x=marker_x,
-                marker_y=marker_y
+                marker_y=marker_y,
+                viewport_width=img_width,
+                viewport_height=img_height,
             )
         elif marker_x is not None and marker_y is not None:
             # Только маркер, без аннотаций
@@ -790,7 +860,9 @@ def _get_screenshot_base64(screenshot_path: str, annotations: list = None, marke
                 screenshot_path=str(full_path),
                 annotations=[],
                 marker_x=marker_x,
-                marker_y=marker_y
+                marker_y=marker_y,
+                viewport_width=img_width,
+                viewport_height=img_height,
             )
         
         # Используем обработанный скриншот или оригинал

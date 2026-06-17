@@ -75,8 +75,20 @@ async def init_db() -> None:
     Инициализация базы данных.
     Создает все таблицы на основе моделей.
     """
+    from sqlalchemy import text
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Лёгкая «миграция» для уже существующих БД: create_all не добавляет
+        # новые колонки в существующие таблицы. owner_token нужен для приватности
+        # черновиков (см. models.Guide).
+        await conn.execute(
+            text("ALTER TABLE guides ADD COLUMN IF NOT EXISTS owner_token VARCHAR(64)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_guides_owner_token ON guides (owner_token)")
+        )
 
 
 async def close_db() -> None:

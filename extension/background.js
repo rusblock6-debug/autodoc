@@ -23,12 +23,47 @@ let recordingState = {
   recordingTabs: new Set()
 };
 
-// Настройки
-const CONFIG = {
+// Настройки.
+// Адрес сервера задаётся пользователем в popup и хранится в chrome.storage.local
+// (ключ serverConfig). Дефолты — для локальной разработки.
+const DEFAULT_CONFIG = {
   API_BASE: 'http://localhost:8888',
-  FRONTEND_URL: 'http://localhost:3000',
-  UPLOAD_ENDPOINT: '/api/v1/sessions/upload'
+  FRONTEND_URL: 'http://localhost:3001'
 };
+const UPLOAD_ENDPOINT = '/api/v1/sessions/upload';
+
+// Возвращает актуальный адрес сервера (api + frontend) из хранилища.
+// Единое поле "Адрес сервера" используется и для API, и для веб-интерфейса
+// (типичный прод за одним доменом/reverse-proxy). Если поле пустое — дефолты.
+async function getServerConfig() {
+  try {
+    const { serverConfig } = await chrome.storage.local.get('serverConfig');
+    const stripSlash = (u) => String(u || '').replace(/\/+$/, '');
+    return {
+      apiBase: stripSlash(serverConfig?.apiBase) || DEFAULT_CONFIG.API_BASE,
+      frontendUrl: stripSlash(serverConfig?.frontendUrl) || DEFAULT_CONFIG.FRONTEND_URL
+    };
+  } catch (e) {
+    console.warn('[НИР-Документ] getServerConfig failed, using defaults:', e);
+    return { apiBase: DEFAULT_CONFIG.API_BASE, frontendUrl: DEFAULT_CONFIG.FRONTEND_URL };
+  }
+}
+
+// Анонимный владелец: постоянный client_id расширения. По нему бэкенд
+// показывает черновики только владельцу. Передаётся в заголовке X-Owner-Token
+// при загрузке и в URL открываемого гайда (?owner=), чтобы веб-приложение
+// «узнало» того же владельца.
+async function getOwnerToken() {
+  try {
+    const { ownerToken } = await chrome.storage.local.get('ownerToken');
+    if (ownerToken) return ownerToken;
+    const id = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await chrome.storage.local.set({ ownerToken: id });
+    return id;
+  } catch (e) {
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+}
 
 console.log('[НИР-Документ] Background script loaded');
 
@@ -213,12 +248,16 @@ async function handleStopRecording(message, sendResponse) {
     };
     
     // Открываем результат
+    const { frontendUrl } = await getServerConfig();
     if (result.success && result.guide_id) {
       showNotification('done', 'НИР-Документ', `Готово! ${eventCount} событий`);
-      chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/guide/${result.guide_id}/edit` });
+      // ?owner=<token> — чтобы веб-приложение приняло токен владельца расширения
+      // и показывало этот черновик как свой.
+      const ownerToken = await getOwnerToken();
+      chrome.tabs.create({ url: `${frontendUrl}/guide/${result.guide_id}/edit?owner=${encodeURIComponent(ownerToken)}` });
     } else {
       showNotification('done', 'НИР-Документ', result.error || 'Сохранено');
-      chrome.tabs.create({ url: CONFIG.FRONTEND_URL });
+      chrome.tabs.create({ url: frontendUrl });
     }
     
     sendResponse({ success: true, uploadResult: result });
@@ -598,8 +637,11 @@ async function uploadSession(sessionData) {
       }
     }
     
-    const response = await fetch(CONFIG.API_BASE + CONFIG.UPLOAD_ENDPOINT, {
+    const { apiBase } = await getServerConfig();
+    const ownerToken = await getOwnerToken();
+    const response = await fetch(apiBase + UPLOAD_ENDPOINT, {
       method: 'POST',
+      headers: { 'X-Owner-Token': ownerToken },
       body: formData
     });
     

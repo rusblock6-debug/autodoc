@@ -582,108 +582,153 @@ class AIService:
         click_y: Optional[float] = None,
         viewport_width: Optional[int] = None,
         viewport_height: Optional[int] = None,
+        element_hint: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Анализ скриншота с помощью Vision AI для генерации инструкции.
-        
+
+        Ключевая идея: место клика делается явно видимым для модели —
+        на скриншот наносится маркер, плюс отдельно подаётся увеличенный
+        фрагмент вокруг клика. Так модель «смотрит, на что нажали», а не
+        описывает страницу в целом.
+
         Args:
             screenshot_path: Путь к файлу скриншота
             click_x: X координата клика (опционально)
             click_y: Y координата клика (опционально)
             viewport_width: Ширина viewport (опционально)
             viewport_height: Высота viewport (опционально)
-            
+            element_hint: Текст/описание элемента из DOM (подпись кнопки,
+                alt картинки и т.п.) — подсказка для модели (опционально)
+
         Returns:
             Dict с ключом 'instruction' содержащим сгенерированную инструкцию
         """
         import base64
         from openai import OpenAI
         from app.config import settings
-        
-        logger.info(f"Analyzing screenshot: {screenshot_path}")
-        
-        try:
-            # Читаем изображение и конвертируем в base64
-            with open(screenshot_path, "rb") as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            
-            # Формируем промпт - как инструктор, а не описатель
-            if click_x is not None and click_y is not None:
-                prompt = f"""Ты создаешь пошаговую инструкцию для пользователя.
+        from app.services.screenshot_processor import render_click_focus
 
-На скриншоте показан один шаг действия. Пользователь кликнул в точке ({click_x:.0f}, {click_y:.0f}).
+        logger.info(f"Analyzing screenshot: {screenshot_path} (click={click_x},{click_y})")
+
+        # Без настроенного бэкенда Vision молча падать нельзя — это и есть
+        # причина «Нажмите на элемент DIV». Сообщаем явно.
+        if not settings.LLM_API_BASE or not settings.LLM_API_KEY:
+            msg = "Vision backend is not configured (LLM_API_BASE/LLM_API_KEY empty)"
+            logger.error(msg)
+            return {"instruction": None, "success": False, "error": msg}
+
+        try:
+            content: List[Dict[str, Any]] = []
+            has_click = click_x is not None and click_y is not None
+
+            hint_line = ""
+            if element_hint and element_hint.strip():
+                hint_line = (
+                    f'\nПодсказка из кода страницы (текст элемента под кликом): '
+                    f'"{element_hint.strip()[:120]}". Используй её, если она осмысленна.'
+                )
+
+            if has_click:
+                # Готовим маркированный скрин + увеличенный фрагмент вокруг клика.
+                # Размеры вьюпорта нужны, чтобы пересчитать CSS-координаты клика
+                # в пиксели картинки (DPR/масштаб экрана) — иначе маркер уезжает.
+                focus = render_click_focus(
+                    screenshot_path, int(click_x), int(click_y),
+                    viewport_width=viewport_width, viewport_height=viewport_height,
+                )
+                # На 8 ГБ VRAM полный скрин можно отключить (VISION_SEND_FULL_IMAGE),
+                # чтобы экономить видео-токены и не словить OOM на тяжёлой модели.
+                send_full = settings.VISION_SEND_FULL_IMAGE and focus is not None
+
+                if send_full:
+                    images_desc = (
+                        "Тебе дано ДВА изображения одного и того же шага:\n"
+                        "1) Полный скриншот страницы — место клика отмечено оранжевым круглым маркером.\n"
+                        "2) Увеличенный фрагмент вокруг этого же маркера — чтобы рассмотреть элемент."
+                    )
+                else:
+                    images_desc = (
+                        "Тебе дан увеличенный фрагмент страницы вокруг места клика — "
+                        "оно отмечено оранжевым круглым маркером."
+                    )
+
+                prompt = f"""Ты создаёшь пошаговую инструкцию для пользователя.
+
+{images_desc}
+
+Смотри ИМЕННО на элемент под маркером (а не на страницу в целом).{hint_line}
 
 Напиши ОДНО короткое предложение (максимум 10-12 слов) в формате инструкции:
 - Начни с глагола действия (Нажмите, Выберите, Откройте, Введите, Кликните)
-- Укажи КОНКРЕТНЫЙ элемент интерфейса (кнопку, поле, пункт меню)
+- Назови КОНКРЕТНЫЙ элемент под маркером и его подпись/иконку
 - Будь лаконичен
 
 Примеры ХОРОШИХ инструкций:
-✅ "Нажмите кнопку 'Сохранить' в правом верхнем углу"
-✅ "Выберите пункт 'Настройки' в боковом меню"
+✅ "Нажмите кнопку «Сохранить» в правом верхнем углу"
+✅ "Выберите пункт «Настройки» в боковом меню"
 ✅ "Кликните на иконку профиля"
-✅ "Введите текст в поле поиска"
 
-Примеры ПЛОХИХ инструкций (НЕ делай так):
+НЕ делай так:
 ❌ "На скриншоте изображена страница с кнопкой..."
+❌ "Нажмите на элемент DIV"
 ❌ "Пользователь видит интерфейс, где находится..."
-❌ "Здесь показан экран настроек системы..."
 
 Отвечай ТОЛЬКО инструкцией, без лишних слов. На русском языке."""
+
+                content.append({"type": "text", "text": prompt})
+
+                if focus:
+                    if send_full:
+                        content.append({"type": "image_url", "image_url": {
+                            "url": f"data:image/png;base64,{focus['full']}"}})
+                    content.append({"type": "image_url", "image_url": {
+                        "url": f"data:image/png;base64,{focus['crop']}"}})
+                else:
+                    # Не удалось отрисовать маркер — отправляем хотя бы оригинал
+                    with open(screenshot_path, "rb") as f:
+                        raw = base64.b64encode(f.read()).decode('utf-8')
+                    content.append({"type": "image_url", "image_url": {
+                        "url": f"data:image/png;base64,{raw}"}})
             else:
-                prompt = """Ты создаешь пошаговую инструкцию для пользователя.
+                prompt = f"""Ты создаёшь пошаговую инструкцию для пользователя.
 
-На скриншоте показан один шаг действия.
+На скриншоте показан один шаг действия.{hint_line}
 
-Напиши ОДНО короткое предложение (максимум 10-12 слов) описывающее что пользователь видит:
+Напиши ОДНО короткое предложение (максимум 10-12 слов):
 - Начни с "Откройте", "Перейдите", "Просмотрите"
 - Укажи название страницы или раздела
 - Будь лаконичен
 
-Примеры:
-✅ "Откройте главную страницу приложения"
-✅ "Перейдите в раздел 'Документы'"
-✅ "Просмотрите список доступных опций"
-
 Отвечай ТОЛЬКО инструкцией, без лишних слов. На русском языке."""
-            
-            # Инициализируем клиент OpenRouter
+                with open(screenshot_path, "rb") as f:
+                    raw = base64.b64encode(f.read()).decode('utf-8')
+                content.append({"type": "text", "text": prompt})
+                content.append({"type": "image_url", "image_url": {
+                    "url": f"data:image/png;base64,{raw}"}})
+
             client = OpenAI(
                 base_url=settings.LLM_API_BASE,
                 api_key=settings.LLM_API_KEY,
             )
-            
-            # Вызываем Vision модель
+
             response = client.chat.completions.create(
                 model=settings.VISION_MODEL,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_data}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=100,  # Короткие инструкции
+                messages=[{"role": "user", "content": content}],
+                max_tokens=100,   # Короткие инструкции
                 temperature=0.3,  # Меньше креатива, больше точности
             )
-            
+
             instruction = response.choices[0].message.content.strip()
             logger.info(f"Generated instruction: {instruction[:100]}...")
-            
+
             return {
                 "instruction": instruction,
                 "success": True,
             }
-            
+
         except Exception as e:
-            logger.error(f"Error analyzing screenshot: {e}")
+            logger.error(f"Error analyzing screenshot: {e}", exc_info=True)
             return {
                 "instruction": None,
                 "success": False,

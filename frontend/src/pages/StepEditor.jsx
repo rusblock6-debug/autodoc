@@ -1,9 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { guidesApi, stepsApi, storageApi, exportApi } from '../services/api'
+import { guidesApi, stepsApi, storageApi, exportApi, dataJsonApi } from '../services/api'
+import { useToast, useConfirm } from '../ui'
+
+// Палитра цветов для выделений (легенды)
+const ANN_COLORS = ['#ed8d48', '#e53e3e', '#22c55e', '#3b82f6', '#a855f7']
+// Режимы выделения: spotlight (затемнить фон), outline (только рамка), glow (свечение)
+const ANN_MODES = [
+  { id: 'spotlight', icon: '🔦', label: 'Затемнить фон' },
+  { id: 'outline', icon: '▢', label: 'Только рамка' },
+  { id: 'glow', icon: '✨', label: 'Свечение' },
+]
+const SHAPE_TOOLS = [
+  { id: 'rect', icon: '▭', label: 'Прямоугольник' },
+  { id: 'circle', icon: '◯', label: 'Овал' },
+  { id: 'arrow', icon: '➜', label: 'Стрелка' },
+]
+
 function StepEditor() {
   const { guideId } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
+  const confirm = useConfirm()
   const [guide, setGuide] = useState(null)
   const [steps, setSteps] = useState([])
   const [selectedStep, setSelectedStep] = useState(null)
@@ -15,6 +33,10 @@ function StepEditor() {
   const [showAnnotations, setShowAnnotations] = useState(false)
   const [annotations, setAnnotations] = useState([])
   const [drawingAnnotation, setDrawingAnnotation] = useState(null)
+  // Текущие настройки инструмента выделения + выбранная аннотация
+  const [annColor, setAnnColor] = useState(ANN_COLORS[0])
+  const [annMode, setAnnMode] = useState('spotlight')
+  const [selectedAnnId, setSelectedAnnId] = useState(null)
   const imageRef = useRef(null)
   
   // Компактный вид шагов
@@ -144,18 +166,34 @@ function StepEditor() {
   }, [selectedStep])
 
   const handleAddAnnotation = (type) => {
+    // Стрелка хранит начало в (x,y) и конец в (x+width, y+height)
+    const geom = type === 'arrow'
+      ? { x: 120, y: 200, width: 180, height: 0 }
+      : { x: 100, y: 100, width: 200, height: 100 }
     const newAnnotation = {
       id: Date.now(),
       type,
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 100,
-      color: '#ed8d48'
+      ...geom,
+      color: annColor,
+      mode: annMode,
+      label: '',
     }
     const updated = [...annotations, newAnnotation]
     setAnnotations(updated)
+    setSelectedAnnId(newAnnotation.id)
     saveAnnotations(selectedStep.id, updated)
+  }
+
+  // Применить цвет: к выбранной аннотации, иначе запомнить для новых
+  const applyColor = (color) => {
+    setAnnColor(color)
+    if (selectedAnnId) handleUpdateAnnotation(selectedAnnId, { color })
+  }
+
+  // Применить режим выделения: к выбранной аннотации, иначе запомнить для новых
+  const applyMode = (mode) => {
+    setAnnMode(mode)
+    if (selectedAnnId) handleUpdateAnnotation(selectedAnnId, { mode })
   }
 
   const handleUpdateAnnotation = (id, updates) => {
@@ -180,7 +218,7 @@ function StepEditor() {
   }
 
   const handleDeleteStep = async (stepId) => {
-    if (!confirm('Удалить этот шаг?')) return
+    if (!(await confirm({ title: 'Удалить шаг', message: 'Удалить этот шаг?', danger: true, confirmText: 'Удалить' }))) return
     try {
       await stepsApi.delete(stepId)
       const newSteps = steps.filter(s => s.id !== stepId)
@@ -234,8 +272,15 @@ function StepEditor() {
         })
       })
       
+      // fetch не бросает на 4xx/5xx — проверяем сами, иначе реальная причина
+      // (напр. «No steps have screenshots») подменяется на «Не получен ID задачи».
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP ${response.status}`)
+      }
+
       const data = await response.json()
-      
+
       if (data.task_id) {
         setTaskId(data.task_id)
         setProgressMessage('Задача в очереди...')
@@ -243,9 +288,9 @@ function StepEditor() {
         setVideoError('Не получен ID задачи')
         setGenerating(false)
       }
-      
+
     } catch (error) {
-      setVideoError(error.response?.data?.detail || 'Не удалось запустить генерацию')
+      setVideoError(error.message || 'Не удалось запустить генерацию')
       setGenerating(false)
     }
   }
@@ -297,7 +342,7 @@ function StepEditor() {
       document.body.removeChild(a)
       
     } catch (error) {
-      alert(`Ошибка экспорта в ${format.toUpperCase()}`)
+      toast.error(`Ошибка экспорта в ${format.toUpperCase()}`)
     }
   }
 
@@ -321,7 +366,7 @@ function StepEditor() {
       startAIPolling()
       
     } catch (error) {
-      alert('Ошибка запуска AI обработки')
+      toast.error('Ошибка запуска AI обработки')
     }
   }
 
@@ -409,21 +454,17 @@ function StepEditor() {
   const handleExportSubmit = async () => {
     try {
       const itemsArray = exportData.items.split('\n').filter(line => line.trim())
-      
-      let endpoint, body
-      
+
       if (exportType === 'descriptive') {
-        endpoint = '/api/v1/data-json/add-to-descriptive'
-        body = {
+        await dataJsonApi.addToDescriptive({
           guide_id: guideId,
           title: exportData.title,
           subtitle: exportData.subtitle,
           description: exportData.description,
           items: itemsArray
-        }
+        })
       } else { // instruction
-        endpoint = '/api/v1/data-json/add-to-instruction'
-        body = {
+        await dataJsonApi.addToInstruction({
           guide_id: guideId,
           title: exportData.title,
           nav_title: exportData.nav_title || exportData.title,
@@ -433,24 +474,14 @@ function StepEditor() {
             text: step.annotation || `Шаг ${step.step_number}`,
             image: step.screenshot_path || ''
           }))
-        }
+        })
       }
-      
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      })
-      
-      if (response.ok) {
-        alert('✅ Успешно экспортировано!')
-        setShowExportModal(false)
-      } else {
-        const error = await response.json()
-        alert(`❌ Ошибка: ${error.detail || 'Не удалось экспортировать'}`)
-      }
+
+      toast.success('Успешно экспортировано')
+      setShowExportModal(false)
     } catch (error) {
-      alert('❌ Ошибка экспорта: ' + error.message)
+      const detail = error.response?.data?.detail || error.message || 'Не удалось экспортировать'
+      toast.error(`Ошибка экспорта: ${detail}`)
     }
   }
 
@@ -618,7 +649,7 @@ function StepEditor() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {steps.map((step, index) => (
               <StepCard key={step.id} step={step} index={index} isSelected={selectedStep?.id === step.id && activeTab === 'steps'} isFirst={index === 0} isLast={index === steps.length - 1} isEditing={editingText === step.id} compactView={compactView}
-                onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
+                onSelect={() => { setActiveTab('steps'); setSelectedStep(step); setAnnotations(step.annotations || []); setSelectedAnnId(null) }} onEdit={() => setEditingText(step.id)} onSave={(text) => handleTextUpdate(step.id, text)} onCancel={() => setEditingText(null)}
                 onDelete={() => handleDeleteStep(step.id)} onMoveUp={() => handleMoveStep(step.id, 'up')} onMoveDown={() => handleMoveStep(step.id, 'down')} />
             ))}
             
@@ -723,31 +754,82 @@ function StepEditor() {
                   </button>
                 )}
                 
-                {/* Прямоугольник */}
-                <button 
-                  onClick={() => handleAddAnnotation('rect')} 
-                  title="Добавить прямоугольник"
-                  style={{ 
-                    width: '28px',
-                    height: '28px',
-                    backgroundColor: 'transparent',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '14px',
-                    color: '#ed8d48'
-                  }}
-                >
-                  ▭
-                </button>
-                
+                {/* Фигуры выделения */}
+                {SHAPE_TOOLS.map(tool => (
+                  <button
+                    key={tool.id}
+                    onClick={() => handleAddAnnotation(tool.id)}
+                    title={`Добавить: ${tool.label}`}
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      backgroundColor: 'transparent',
+                      border: '1px solid #e0e0e0',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '14px',
+                      color: annColor
+                    }}
+                  >
+                    {tool.icon}
+                  </button>
+                ))}
+
+                {/* Разделитель */}
+                <div style={{ width: '1px', height: '20px', backgroundColor: '#e0e0e0', margin: '0 2px' }} />
+
+                {/* Палитра цветов */}
+                {ANN_COLORS.map(color => (
+                  <button
+                    key={color}
+                    onClick={() => applyColor(color)}
+                    title="Цвет выделения"
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      backgroundColor: color,
+                      border: annColor === color ? '2px solid #333' : '2px solid #fff',
+                      boxShadow: '0 0 0 1px #e0e0e0',
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  />
+                ))}
+
+                {/* Разделитель */}
+                <div style={{ width: '1px', height: '20px', backgroundColor: '#e0e0e0', margin: '0 2px' }} />
+
+                {/* Режим выделения */}
+                {ANN_MODES.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => applyMode(m.id)}
+                    title={m.label}
+                    style={{
+                      width: '28px',
+                      height: '28px',
+                      backgroundColor: annMode === m.id ? '#fff5e6' : 'transparent',
+                      border: annMode === m.id ? '1px solid #ed8d48' : '1px solid #e0e0e0',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '13px'
+                    }}
+                  >
+                    {m.icon}
+                  </button>
+                ))}
+
                 {/* Очистить все */}
                 {annotations.length > 0 && (
                   <button 
-                    onClick={() => { setAnnotations([]); saveAnnotations(selectedStep.id, []) }} 
+                    onClick={() => { setAnnotations([]); setSelectedAnnId(null); saveAnnotations(selectedStep.id, []) }}
                     title="Очистить все аннотации"
                     style={{ 
                       width: '28px',
@@ -774,38 +856,61 @@ function StepEditor() {
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 <img ref={imageRef} src={storageApi.getScreenshotUrl(selectedStep.screenshot_path)} alt="" style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 300px)', borderRadius: '4px', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }} draggable={false} />
                 
-                {/* Серый оверлей с вырезами под аннотации */}
-                {annotations.length > 0 && (
-                  <DarkOverlay 
-                    annotations={annotations}
+                {/* Серый оверлей с вырезами только под spotlight-выделения (rect/circle) */}
+                {annotations.some(a => (a.mode || 'spotlight') === 'spotlight' && a.type !== 'arrow') && (
+                  <DarkOverlay
+                    annotations={annotations.filter(a => (a.mode || 'spotlight') === 'spotlight' && a.type !== 'arrow')}
                     imageRef={imageRef}
                     viewportWidth={selectedStep.screenshot_width}
                     viewportHeight={selectedStep.screenshot_height}
                   />
                 )}
-                
-                <DraggableMarker 
-                  x={selectedStep.click_x} 
-                  y={selectedStep.click_y} 
+
+                <DraggableMarker
+                  x={selectedStep.click_x}
+                  y={selectedStep.click_y}
                   viewportWidth={selectedStep.screenshot_width}
                   viewportHeight={selectedStep.screenshot_height}
-                  imageRef={imageRef} 
-                  onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)} 
+                  imageRef={imageRef}
+                  onDragEnd={(x, y) => handleMarkerDrag(selectedStep.id, x, y)}
                 />
-                {annotations.map(ann => (
-                  <DraggableAnnotation
-                    key={ann.id}
-                    annotation={ann}
-                    imageRef={imageRef}
-                    viewportWidth={selectedStep.screenshot_width}
-                    viewportHeight={selectedStep.screenshot_height}
-                    onUpdate={(updates) => handleUpdateAnnotation(ann.id, updates)}
-                    onDelete={() => handleDeleteAnnotation(ann.id)}
-                  />
+                {annotations.map((ann, idx) => (
+                  ann.type === 'arrow' ? (
+                    <DraggableArrow
+                      key={ann.id}
+                      annotation={ann}
+                      number={idx + 1}
+                      isSelected={selectedAnnId === ann.id}
+                      imageRef={imageRef}
+                      viewportWidth={selectedStep.screenshot_width}
+                      viewportHeight={selectedStep.screenshot_height}
+                      onSelect={() => setSelectedAnnId(ann.id)}
+                      onUpdate={(updates) => handleUpdateAnnotation(ann.id, updates)}
+                      onDelete={() => { handleDeleteAnnotation(ann.id); setSelectedAnnId(null) }}
+                    />
+                  ) : (
+                    <DraggableAnnotation
+                      key={ann.id}
+                      annotation={ann}
+                      number={idx + 1}
+                      isSelected={selectedAnnId === ann.id}
+                      imageRef={imageRef}
+                      viewportWidth={selectedStep.screenshot_width}
+                      viewportHeight={selectedStep.screenshot_height}
+                      onSelect={() => setSelectedAnnId(ann.id)}
+                      onUpdate={(updates) => handleUpdateAnnotation(ann.id, updates)}
+                      onDelete={() => { handleDeleteAnnotation(ann.id); setSelectedAnnId(null) }}
+                    />
+                  )
                 ))}
               </div>
             ) : (
               <div style={{ color: '#999', padding: '48px' }}>Нет скриншота</div>
+            )}
+
+            {/* Блок-легенда: расшифровка подписанных выделений */}
+            {selectedStep?.screenshot_path && annotations.some(a => (a.label || '').trim()) && (
+              <AnnotationLegend annotations={annotations} />
             )}
           </div>
             </>
@@ -887,9 +992,21 @@ function DarkOverlay({ annotations, imageRef, viewportWidth, viewportHeight }) {
           {/* Белый фон = видимая область */}
           <rect x="0" y="0" width={imgWidth} height={imgHeight} fill="white" />
           
-          {/* Черные прямоугольники = вырезы (прозрачные области) */}
+          {/* Черные фигуры = вырезы (прозрачные области) */}
           {annotations.map(ann => {
             const pos = convertToDisplayCoords(ann)
+            if (ann.type === 'circle') {
+              return (
+                <ellipse
+                  key={ann.id}
+                  cx={pos.x + pos.width / 2}
+                  cy={pos.y + pos.height / 2}
+                  rx={pos.width / 2}
+                  ry={pos.height / 2}
+                  fill="black"
+                />
+              )
+            }
             return (
               <rect
                 key={ann.id}
@@ -977,10 +1094,11 @@ function DraggableMarker({ x, y, viewportWidth, viewportHeight, imageRef, onDrag
   )
 }
 
-function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeight, onUpdate, onDelete }) {
+function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewportWidth, viewportHeight, onSelect, onUpdate, onDelete }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [localPos, setLocalPos] = useState({ x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height })
+  const [labelDraft, setLabelDraft] = useState(annotation.label || '')
   const isMountedRef = useRef(true)
   const prevAnnotationIdRef = useRef(annotation.id)
 
@@ -1067,24 +1185,68 @@ function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeig
   }
 
   const pos = getPos()
+  const color = annotation.color || '#ed8d48'
+  const mode = annotation.mode || 'spotlight'
+  const isCircle = annotation.type === 'circle'
 
   return (
     <div
-      onMouseDown={(e) => handleMouseDown(e, 'move')}
+      onMouseDown={(e) => { onSelect && onSelect(); handleMouseDown(e, 'move') }}
       style={{
         position: 'absolute',
         left: pos.left,
         top: pos.top,
         width: pos.width,
         height: pos.height,
-        border: `3px solid ${annotation.color}`,
-        borderRadius: '4px',
+        border: `3px solid ${color}`,
+        borderRadius: isCircle ? '50%' : '4px',
         backgroundColor: 'transparent',
+        boxShadow: mode === 'glow'
+          ? `0 0 16px 4px ${color}, 0 0 5px 1px ${color}`
+          : (isSelected ? '0 0 0 2px rgba(0,0,0,0.35)' : 'none'),
         cursor: isDragging ? 'grabbing' : 'grab',
         boxSizing: 'border-box',
         transition: isDragging || isResizing ? 'none' : 'all 0.1s'
       }}
     >
+      {/* Номерной бейдж + поле подписи (легенда) */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute',
+          top: '-13px',
+          left: '-3px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          zIndex: 4
+        }}
+      >
+        <span style={{
+          minWidth: '22px', height: '22px', padding: '0 6px',
+          borderRadius: '11px', backgroundColor: color, color: '#fff',
+          fontSize: '12px', fontWeight: 700, fontFamily: 'Montserrat, sans-serif',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
+        }}>{number}</span>
+        {(isSelected || labelDraft) && (
+          <input
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={() => onUpdate({ label: labelDraft })}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="подпись…"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+              padding: '2px 6px', borderRadius: '4px',
+              border: `1px solid ${color}`, backgroundColor: 'rgba(255,255,255,0.96)',
+              color: '#333', outline: 'none', width: '130px'
+            }}
+          />
+        )}
+      </div>
+
       <button
         onClick={(e) => { e.stopPropagation(); onDelete() }}
         style={{
@@ -1094,7 +1256,7 @@ function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeig
           width: '36px',
           height: '36px',
           borderRadius: '50%',
-          backgroundColor: '#ed8d48',
+          backgroundColor: color,
           color: '#fff',
           border: '3px solid #fff',
           cursor: 'pointer',
@@ -1117,12 +1279,160 @@ function DraggableAnnotation({ annotation, imageRef, viewportWidth, viewportHeig
           right: '-5px',
           width: '10px',
           height: '10px',
-          backgroundColor: '#ed8d48',
+          backgroundColor: color,
           border: '2px solid #fff',
           borderRadius: '50%',
           cursor: 'nwse-resize'
         }}
       />
+    </div>
+  )
+}
+
+// Стрелка-указатель: хранит начало (x,y) и смещение конца (width,height)
+function DraggableArrow({ annotation, number, isSelected, imageRef, viewportWidth, viewportHeight, onSelect, onUpdate, onDelete }) {
+  const [start, setStart] = useState({ x: annotation.x, y: annotation.y })
+  const [end, setEnd] = useState({ x: annotation.x + annotation.width, y: annotation.y + annotation.height })
+  const [labelDraft, setLabelDraft] = useState(annotation.label || '')
+  const isMountedRef = useRef(true)
+  useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false } }, [])
+
+  const color = annotation.color || '#ed8d48'
+  const glow = (annotation.mode || 'spotlight') === 'glow'
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+
+  const dims = () => {
+    const dw = imageRef.current?.clientWidth || 1
+    const dh = imageRef.current?.clientHeight || 1
+    const vw = viewportWidth || imageRef.current?.naturalWidth || dw
+    const vh = viewportHeight || imageRef.current?.naturalHeight || dh
+    return { dw, dh, vw, vh }
+  }
+  const toDisplay = (p) => { const { dw, dh, vw, vh } = dims(); return { x: (p.x / vw) * dw, y: (p.y / vh) * dh } }
+  const commit = (s, e) => onUpdate({ x: Math.round(s.x), y: Math.round(s.y), width: Math.round(e.x - s.x), height: Math.round(e.y - s.y) })
+
+  const startDrag = (e, which) => {
+    e.preventDefault(); e.stopPropagation(); onSelect && onSelect()
+    if (!imageRef.current) return
+    const rect = imageRef.current.getBoundingClientRect()
+    const { vw, vh } = dims()
+    const m0 = { x: e.clientX, y: e.clientY }
+    const s0 = { ...start }, e0 = { ...end }
+    let cs = { ...s0 }, ce = { ...e0 }
+    const move = (ev) => {
+      const dx = (ev.clientX - m0.x) * (vw / rect.width)
+      const dy = (ev.clientY - m0.y) * (vh / rect.height)
+      if (which === 'start') { cs = { x: clamp(s0.x + dx, 0, vw), y: clamp(s0.y + dy, 0, vh) }; setStart(cs) }
+      else if (which === 'end') { ce = { x: clamp(e0.x + dx, 0, vw), y: clamp(e0.y + dy, 0, vh) }; setEnd(ce) }
+      else {
+        cs = { x: clamp(s0.x + dx, 0, vw), y: clamp(s0.y + dy, 0, vh) }
+        ce = { x: clamp(e0.x + dx, 0, vw), y: clamp(e0.y + dy, 0, vh) }
+        setStart(cs); setEnd(ce)
+      }
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      if (isMountedRef.current) commit(cs, ce)
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
+
+  const ds = toDisplay(start)
+  const de = toDisplay(end)
+  const markerId = `arrowhead-${annotation.id}`
+
+  const handleStyle = (left, top) => ({
+    position: 'absolute', left, top, width: '12px', height: '12px',
+    marginLeft: '-6px', marginTop: '-6px', borderRadius: '50%',
+    backgroundColor: '#fff', border: `2px solid ${color}`,
+    cursor: 'move', pointerEvents: 'auto', zIndex: 5
+  })
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3 }}>
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}>
+        <defs>
+          <marker id={markerId} markerWidth="10" markerHeight="10" refX="7" refY="3.5" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill={color} />
+          </marker>
+        </defs>
+        {/* Невидимая толстая линия — цель для перетаскивания всей стрелки */}
+        <line x1={ds.x} y1={ds.y} x2={de.x} y2={de.y} stroke="transparent" strokeWidth="16"
+          style={{ pointerEvents: 'stroke', cursor: 'move' }} onMouseDown={(e) => startDrag(e, 'body')} />
+        <line x1={ds.x} y1={ds.y} x2={de.x} y2={de.y} stroke={color} strokeWidth={isSelected ? 5 : 3.5}
+          strokeLinecap="round" markerEnd={`url(#${markerId})`}
+          style={{ filter: glow ? `drop-shadow(0 0 5px ${color})` : 'none', pointerEvents: 'none' }} />
+      </svg>
+
+      {/* Ручки концов */}
+      <div style={handleStyle(ds.x, ds.y)} onMouseDown={(e) => startDrag(e, 'start')} />
+      <div style={handleStyle(de.x, de.y)} onMouseDown={(e) => startDrag(e, 'end')} />
+
+      {/* Бейдж + подпись у начала */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{ position: 'absolute', left: ds.x + 10, top: ds.y - 12, display: 'flex', alignItems: 'center', gap: '4px', pointerEvents: 'auto', zIndex: 6 }}
+      >
+        <span style={{
+          minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '11px',
+          backgroundColor: color, color: '#fff', fontSize: '12px', fontWeight: 700,
+          fontFamily: 'Montserrat, sans-serif', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
+        }}>{number}</span>
+        {(isSelected || labelDraft) && (
+          <input
+            value={labelDraft}
+            onChange={(e) => setLabelDraft(e.target.value)}
+            onBlur={() => onUpdate({ label: labelDraft })}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+            placeholder="подпись…"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              fontSize: '12px', fontFamily: 'system-ui, sans-serif', padding: '2px 6px',
+              borderRadius: '4px', border: `1px solid ${color}`,
+              backgroundColor: 'rgba(255,255,255,0.96)', color: '#333', outline: 'none', width: '130px'
+            }}
+          />
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          title="Удалить"
+          style={{
+            width: '20px', height: '20px', borderRadius: '50%', backgroundColor: color,
+            color: '#fff', border: '2px solid #fff', cursor: 'pointer', fontSize: '11px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0
+          }}
+        >×</button>
+      </div>
+    </div>
+  )
+}
+
+// Блок-легенда под скриншотом: расшифровка подписанных выделений
+function AnnotationLegend({ annotations }) {
+  const items = (annotations || [])
+    .map((a, i) => ({ n: i + 1, ...a }))
+    .filter(a => (a.label || '').trim())
+  if (items.length === 0) return null
+  return (
+    <div style={{ width: '100%', maxWidth: '820px', backgroundColor: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '14px 18px' }}>
+      <div style={{ fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+        Легенда
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {items.map(a => (
+          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{
+              minWidth: '22px', height: '22px', borderRadius: '11px', backgroundColor: a.color || '#ed8d48',
+              color: '#fff', fontSize: '12px', fontWeight: 700, fontFamily: 'Montserrat, sans-serif',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+            }}>{a.n}</span>
+            <span style={{ fontSize: '14px', color: '#333', fontFamily: 'system-ui, sans-serif' }}>{a.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

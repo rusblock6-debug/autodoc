@@ -25,6 +25,10 @@ class ShortsSegment:
     duration_seconds: float
     annotations: List[Dict[str, Any]] = None
     output_path: str = ""
+    # CSS-размеры вьюпорта — для пересчёта координат маркера/аннотаций в пиксели
+    # картинки (скриншот в физических пикселях, координаты — в CSS).
+    viewport_width: Optional[int] = None
+    viewport_height: Optional[int] = None
     
     def __post_init__(self):
         """Инициализация аннотаций."""
@@ -159,7 +163,9 @@ class ShortsGeneratorSync:
                     text=text,
                     tts_audio_path=tts_audio_path,
                     duration_seconds=max(duration, 2.0),
-                    annotations=step.get('annotations', [])
+                    annotations=step.get('annotations', []),
+                    viewport_width=step.get('screenshot_width'),
+                    viewport_height=step.get('screenshot_height'),
                 )
                 
                 segments.append(segment)
@@ -296,7 +302,9 @@ class ShortsGeneratorSync:
                 screenshot_path=str(screenshot_path),
                 annotations=segment.annotations,
                 marker_x=marker_x,
-                marker_y=marker_y
+                marker_y=marker_y,
+                viewport_width=segment.viewport_width,
+                viewport_height=segment.viewport_height,
             )
             
             if processed_screenshot:
@@ -310,7 +318,9 @@ class ShortsGeneratorSync:
                 screenshot_path=str(screenshot_path),
                 annotations=[],
                 marker_x=marker_x,
-                marker_y=marker_y
+                marker_y=marker_y,
+                viewport_width=segment.viewport_width,
+                viewport_height=segment.viewport_height,
             )
             
             if not processed_screenshot:
@@ -435,6 +445,8 @@ def generate_shorts_sync(guide_uuid: str, tts_engine: str = "edge") -> Dict[str,
                 "screenshot_path": screenshot_path,
                 "click_x": step.click_x or 540,
                 "click_y": step.click_y or 960,
+                "screenshot_width": step.screenshot_width,
+                "screenshot_height": step.screenshot_height,
                 "normalized_text": step.normalized_text or "",
                 "edited_text": step.edited_text or "",
                 "annotations": step.annotations or []
@@ -543,7 +555,9 @@ def generate_video_from_steps(
                 text='',  # Текст уже в аудио
                 tts_audio_path=step.get('audio_path', ''),
                 duration_seconds=generator._get_duration(step.get('audio_path', '')) or 3.0,
-                annotations=step.get('annotations', [])
+                annotations=step.get('annotations', []),
+                viewport_width=step.get('screenshot_width'),
+                viewport_height=step.get('screenshot_height'),
             )
             
             segment_video = generator._create_segment_video(
