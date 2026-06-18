@@ -683,6 +683,14 @@ async def enhance_guide_with_ai(
     from app.celery_tasks import enhance_guide_with_ai_task
     task = enhance_guide_with_ai_task.delay(guide_id, mode)
 
+    # Сохраняем task_id, чтобы можно было отменить задачу из UI.
+    # Заодно снимаем флаг отмены от предыдущего запуска.
+    from app.celery import celery_app
+    import redis as _redis
+    _rc = _redis.from_url(celery_app.conf.broker_url)
+    _rc.set(f"ai_enhancement:{guide_id}:task_id", task.id, ex=3600)
+    _rc.delete(f"ai_enhancement:{guide_id}:cancel")
+
     logger.info(f"Started AI enhancement for guide {guide_id}, mode={mode}, task_id: {task.id}")
 
     return {
@@ -752,4 +760,49 @@ async def get_ai_enhancement_status(
         "total": total,
         "progress_percent": int((current / total) * 100) if total > 0 else 0,
         "message": message,
+    }
+
+
+@router.post("/{guide_id}/cancel-ai")
+async def cancel_ai_enhancement(
+    guide_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Отмена выполняющейся AI обработки гайда.
+
+    Прерывает задачу двумя способами:
+    1) revoke(terminate=True) — убивает процесс воркера, чтобы оборвать даже
+       зависший внутри шага вызов модели (например, медленный Vision на CPU);
+    2) флаг отмены в Redis — на случай, если задача между шагами, останавливает
+       её на ближайшей границе (кооперативно, без потери уже сделанной работы).
+    """
+    from app.celery import celery_app
+    import redis
+
+    redis_client = redis.from_url(celery_app.conf.broker_url)
+
+    task_id_key = f"ai_enhancement:{guide_id}:task_id"
+    status_key = f"ai_enhancement:{guide_id}:status"
+    message_key = f"ai_enhancement:{guide_id}:message"
+    cancel_key = f"ai_enhancement:{guide_id}:cancel"
+
+    # Кооперативный флаг — задача сама остановится на границе шага
+    redis_client.set(cancel_key, "1", ex=3600)
+
+    # Жёсткое прерывание зависшего шага
+    task_id = redis_client.get(task_id_key)
+    if task_id:
+        task_id = task_id.decode("utf-8")
+        celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+        logger.info(f"Revoked AI enhancement task {task_id} for guide {guide_id}")
+
+    # Отражаем отмену в статусе сразу (на случай, если воркер убит до записи)
+    redis_client.set(status_key, "cancelled", ex=3600)
+    redis_client.set(message_key, "Обработка отменена", ex=3600)
+
+    return {
+        "success": True,
+        "guide_id": guide_id,
+        "message": "AI enhancement cancelled",
     }

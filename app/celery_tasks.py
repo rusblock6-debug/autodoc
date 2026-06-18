@@ -602,13 +602,18 @@ def generate_video_task(
         # Генерируем TTS для каждого шага
         from app.services.edge_tts_service import EdgeTTSService
         from app.services.chatterbox_service import get_chatterbox_service
-        
+        from app.services.silero_tts_service import get_silero_service, DEFAULT_SPEAKER
+
         # Создаем TTS сервис с нужными параметрами
         if tts_engine == "edge":
             # Форматируем параметры для Edge TTS
             rate_str = f"{int((tts_speed - 1.0) * 100):+d}%"
             pitch_str = f"{int(tts_pitch):+d}Hz"
             tts_service = EdgeTTSService(voice=tts_voice, rate=rate_str, pitch=pitch_str)
+        elif tts_engine == "silero":
+            # Для Silero tts_voice — это имя голоса (xenia/baya/eugene/...)
+            speaker = tts_voice if tts_voice in ("aidar", "baya", "kseniya", "eugene", "xenia") else DEFAULT_SPEAKER
+            tts_service = get_silero_service(speaker=speaker)
         else:
             tts_service = get_chatterbox_service()
         
@@ -754,7 +759,11 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
     progress_key = f"ai_enhancement:{guide_id}:progress"
     status_key = f"ai_enhancement:{guide_id}:status"
     message_key = f"ai_enhancement:{guide_id}:message"
-    
+    cancel_key = f"ai_enhancement:{guide_id}:cancel"
+
+    # Свежий запуск — снимаем возможный флаг отмены от прошлой задачи
+    redis_client.delete(cancel_key)
+
     try:
         # Создаем синхронное подключение к БД
         engine = create_engine(settings.sync_database_url)
@@ -817,6 +826,27 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
 
         # Обрабатываем каждый шаг
         for i, step in enumerate(steps, 1):
+            # Отмена пользователем — останавливаемся на границе шага.
+            # (Зависший внутри шага вызов прерывает revoke(terminate=True) из API.)
+            if redis_client.get(cancel_key):
+                logger.info(f"[AI Enhancement] Cancelled by user at step {i}/{total_steps}")
+                redis_client.set(status_key, "cancelled", ex=3600)
+                redis_client.set(
+                    message_key,
+                    f"Отменено. Обновлено {succeeded} из {total_steps}.",
+                    ex=3600,
+                )
+                redis_client.delete(cancel_key)
+                session.close()
+                return {
+                    "success": False,
+                    "guide_id": guide_id,
+                    "total_steps": total_steps,
+                    "updated_steps": succeeded,
+                    "cancelled": True,
+                    "message": "AI enhancement cancelled",
+                }
+
             logger.info(f"[AI Enhancement] Processing step {i}/{total_steps} (ID: {step.id}, mode={mode})")
 
             # Обновляем прогресс

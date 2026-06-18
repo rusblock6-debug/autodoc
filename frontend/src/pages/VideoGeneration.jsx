@@ -16,14 +16,21 @@ function VideoGeneration() {
   
   // Настройки TTS
   const [settings, setSettings] = useState({
-    ttsEngine: 'edge',
-    ttsVoice: 'ru-RU-SvetlanaNeural',
+    ttsEngine: 'silero',
+    ttsVoice: 'xenia',
     ttsSpeed: 1.0,
     ttsPitch: 0,
   })
 
   // Доступные голоса
   const voices = {
+    silero: [
+      { value: 'xenia', label: 'Ксения (женский)' },
+      { value: 'baya', label: 'Бая (женский)' },
+      { value: 'kseniya', label: 'Ксения 2 (женский)' },
+      { value: 'eugene', label: 'Евгений (мужской)' },
+      { value: 'aidar', label: 'Айдар (мужской)' },
+    ],
     edge: [
       { value: 'ru-RU-SvetlanaNeural', label: 'Светлана (женский)' },
       { value: 'ru-RU-DmitryNeural', label: 'Дмитрий (мужской)' },
@@ -259,7 +266,20 @@ function VideoGeneration() {
             {/* TTS Engine selector */}
             <div className="mb-4">
               <label className="block text-sm text-gray-400 mb-2">Движок озвучки</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setSettings(s => ({ ...s, ttsEngine: 'silero', ttsVoice: 'xenia' }))}
+                  disabled={generating}
+                  className={`
+                    px-3 py-3 rounded-lg text-sm transition-colors text-left
+                    ${settings.ttsEngine === 'silero'
+                      ? 'bg-yellow-500 text-black'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }
+                  `}
+                >
+                  <div className="font-medium">Silero</div>
+                </button>
                 <button
                   onClick={() => setSettings(s => ({ ...s, ttsEngine: 'edge', ttsVoice: 'ru-RU-SvetlanaNeural' }))}
                   disabled={generating}

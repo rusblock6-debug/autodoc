@@ -65,8 +65,8 @@ function StepEditor() {
   
   // Настройки TTS
   const [ttsSettings, setTtsSettings] = useState({
-    ttsEngine: 'edge',
-    ttsVoice: 'ru-RU-SvetlanaNeural',
+    ttsEngine: 'silero',
+    ttsVoice: 'xenia',
     ttsSpeed: 1.0,
     ttsPitch: 0,
   })
@@ -415,8 +415,8 @@ function StepEditor() {
             status: status.status
           }))
           
-          // Если завершено или ошибка - останавливаем polling
-          if (status.status === 'completed' || status.status === 'error') {
+          // Если завершено / ошибка / отменено - останавливаем polling
+          if (status.status === 'completed' || status.status === 'error' || status.status === 'cancelled') {
             clearInterval(aiPollingRef.current)
             aiPollingRef.current = null
             
@@ -439,6 +439,25 @@ function StepEditor() {
       aiPollingRef.current = null
     }
     setAiModal({ open: false, progress: 0, total: 0, message: '', status: 'idle' })
+  }
+
+  // Отмена выполняющейся AI обработки
+  const cancelEnhance = async () => {
+    if (!guide?.id) return
+    // Останавливаем polling сразу, чтобы прогресс не мигал
+    if (aiPollingRef.current) {
+      clearInterval(aiPollingRef.current)
+      aiPollingRef.current = null
+    }
+    setAiModal(prev => ({ ...prev, status: 'cancelled', message: 'Отменяем обработку...' }))
+    try {
+      await guidesApi.cancelAI(guide.id)
+      setAiModal(prev => ({ ...prev, status: 'cancelled', message: 'Обработка отменена' }))
+      // Подтягиваем то, что успело обновиться до отмены
+      setTimeout(() => { fetchGuide() }, 1000)
+    } catch (error) {
+      toast.error('Не удалось отменить обработку')
+    }
   }
 
   // Cleanup polling on unmount
@@ -970,6 +989,7 @@ function StepEditor() {
           message={aiModal.message}
           status={aiModal.status}
           onClose={closeAIModal}
+          onCancel={cancelEnhance}
         />
       )}
     </div>
@@ -2026,6 +2046,13 @@ function SmallBtn({ onClick, icon, danger }) {
 // Компонент панели генерации видео
 function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, videoError, ttsSettings, setTtsSettings, onGenerate, onDownload }) {
   const voices = {
+    silero: [
+      { value: 'xenia', label: 'Ксения (жен.)' },
+      { value: 'baya', label: 'Бая (жен.)' },
+      { value: 'kseniya', label: 'Ксения 2 (жен.)' },
+      { value: 'eugene', label: 'Евгений (муж.)' },
+      { value: 'aidar', label: 'Айдар (муж.)' },
+    ],
     edge: [
       { value: 'ru-RU-SvetlanaNeural', label: 'Светлана' },
       { value: 'ru-RU-DmitryNeural', label: 'Дмитрий' },
@@ -2091,7 +2118,25 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
               <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
                 Движок
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                <button
+                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'silero', ttsVoice: 'xenia' }))}
+                  disabled={generating}
+                  style={{
+                    padding: '10px',
+                    fontFamily: 'Montserrat, sans-serif',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    backgroundColor: ttsSettings.ttsEngine === 'silero' ? '#ed8d48' : '#fff',
+                    color: ttsSettings.ttsEngine === 'silero' ? '#fff' : '#666',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px',
+                    cursor: generating ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Silero
+                </button>
                 <button
                   onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'edge', ttsVoice: 'ru-RU-SvetlanaNeural' }))}
                   disabled={generating}
@@ -2377,12 +2422,13 @@ function AIButton({ onMouseDown, title }) {
 }
 
 // AI Modal Component (прогресс обработки / результат)
-function AIModal({ progress, total, message, status, onClose }) {
+function AIModal({ progress, total, message, status, onClose, onCancel }) {
   const progressPercent = total > 0 ? Math.round((progress / total) * 100) : 0
 
   const titleText = {
     completed: 'Готово',
     error: 'Ошибка',
+    cancelled: 'Отменено',
   }[status] || 'Обработка AI...'
 
   return (
@@ -2463,8 +2509,32 @@ function AIModal({ progress, total, message, status, onClose }) {
           </div>
         )}
 
-        {/* Close button (only when completed or error) */}
-        {(status === 'completed' || status === 'error') && (
+        {/* Cancel button (while processing) */}
+        {status === 'processing' && (
+          <button
+            onClick={onCancel}
+            style={{
+              width: '100%',
+              padding: '10px',
+              backgroundColor: '#fff',
+              color: '#d9534f',
+              border: '1px solid #d9534f',
+              borderRadius: '4px',
+              fontFamily: 'Montserrat, sans-serif',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background-color 0.15s'
+            }}
+            onMouseOver={(e) => { e.target.style.backgroundColor = '#d9534f'; e.target.style.color = '#fff' }}
+            onMouseOut={(e) => { e.target.style.backgroundColor = '#fff'; e.target.style.color = '#d9534f' }}
+          >
+            Отмена
+          </button>
+        )}
+
+        {/* Close button (when completed / error / cancelled) */}
+        {(status === 'completed' || status === 'error' || status === 'cancelled') && (
           <button
             onClick={onClose}
             style={{

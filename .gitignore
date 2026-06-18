@@ -38,6 +38,7 @@ data/videos/*
 data/uploads/*
 data/wiki/*
 data/models/*
+data/torch_hub/*
 !data/**/.gitkeep
 
 # Test files

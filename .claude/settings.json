@@ -70,7 +70,12 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('app/celery_tasks.py', encoding='utf-8'\\).read\\(\\)\\); print\\('celery_tasks.py OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('screenshot_processor.py OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('processor OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('app/api/export.py', encoding='utf-8'\\).read\\(\\)\\); print\\('python OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('app/api/export.py', encoding='utf-8'\\).read\\(\\)\\); print\\('python OK'\\)\")",
+      "Bash(MSYS_NO_PATHCONV=1 docker compose exec -T celery-worker ffprobe -v error -show_entries stream=codec_type,codec_name -show_entries format=duration -of default=noprint_wrappers=1 //data/output/video_bf014ccb-ae90-44bb-873d-282ddb595763.mp4)",
+      "Bash(curl -s -m 5 http://localhost:11434/api/tags)",
+      "Bash(tasklist)",
+      "Bash(docker wait *)",
+      "Bash(curl -s -X POST http://localhost:8888/api/v1/guides/2/enhance-with-ai?mode=regenerate)"
     ]
   }
 }

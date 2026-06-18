@@ -817,9 +817,10 @@ class AIService:
                 base_url=settings.LLM_API_BASE,
                 api_key=settings.LLM_API_KEY,
             )
-            # Тот же бэкенд, что и Vision — VISION_MODEL гарантированно доступна
-            # на этом эндпоинте и нормально справляется с чисто текстовой задачей.
-            model = settings.VISION_MODEL
+            # Чисто текстовая задача → лёгкая TEXT_MODEL, а не тяжёлая vision.
+            # Маленькая текстовая модель влезает на GPU и работает мгновенно;
+            # vision-модель (qwen2.5vl) для полировки текста — оверкилл.
+            model = settings.TEXT_MODEL
 
             response = client.chat.completions.create(
                 model=model,

@@ -71,12 +71,25 @@ def _text_w(draw: "ImageDraw.ImageDraw", text: str, font) -> int:
 
 
 def _wrap_text(draw: "ImageDraw.ImageDraw", text: str, font, max_w: int) -> List[str]:
-    """Переносит текст по словам в строки не шире max_w. Уважает явные \\n."""
+    """Переносит текст по словам в строки не шире max_w. Уважает явные \\n.
+
+    Слишком длинное слово, не влезающее в строку целиком, рубится по символам —
+    чтобы подпись гарантированно не вылезала за пределы плашки/кадра.
+    """
     lines: List[str] = []
     for para in text.split('\n'):
-        words = para.split(' ')
         cur = ''
-        for word in words:
+        for word in para.split(' '):
+            # Рубим слово длиннее строки на куски по символам
+            while _text_w(draw, word, font) > max_w and len(word) > 1:
+                cut = len(word)
+                while cut > 1 and _text_w(draw, word[:cut], font) > max_w:
+                    cut -= 1
+                if cur:
+                    lines.append(cur)
+                    cur = ''
+                lines.append(word[:cut])
+                word = word[cut:]
             trial = f"{cur} {word}".strip()
             if cur and _text_w(draw, trial, font) > max_w:
                 lines.append(cur)
@@ -88,13 +101,16 @@ def _wrap_text(draw: "ImageDraw.ImageDraw", text: str, font, max_w: int) -> List
 
 
 def _draw_label(draw: "ImageDraw.ImageDraw", cx: int, cy: int, text: str,
-                color: str, badge_r: int, max_w: int) -> None:
-    """Рисует текстовую подпись на белой плашке справа от номерного бейджа.
+                color: str, badge_r: int, img_w: int, img_h: int) -> None:
+    """Рисует текстовую подпись на белой плашке у номерного бейджа.
 
-    (cx, cy) — центр бейджа; подпись ставится справа и центрируется по вертикали.
-    Длинный текст переносится по словам, чтобы не уезжать за край картинки.
+    (cx, cy) — центр бейджа. По умолчанию подпись справа от него; если плашка
+    не влезает по ширине — ставится слева, и в любом случае жёстко удерживается
+    внутри кадра, чтобы не вылезать за пределы картинки/PDF.
     """
     font = _get_font(max(13, int(badge_r * 1.1)))
+    margin = 8
+    max_w = max(120, int(img_w * 0.42))
     lines = _wrap_text(draw, text, font, max_w)
 
     # Высота строки по метрикам шрифта (ascent+descent) — чтобы нижние выносные
@@ -108,17 +124,25 @@ def _draw_label(draw: "ImageDraw.ImageDraw", cx: int, cy: int, text: str,
     block_h = line_h * len(lines)
 
     pad_x, pad_y = 10, 6
-    left = cx + badge_r + 6
-    top = cy - block_h // 2 - pad_y
-    right = left + block_w + pad_x * 2
-    bottom = top + block_h + pad_y * 2
-    rgb = _hex_to_rgb(color)
+    plate_w = block_w + pad_x * 2
+    plate_h = block_h + pad_y * 2
 
+    # Сначала пытаемся справа от бейджа; не влезает — слева; иначе жёсткий клэмп
+    left = cx + badge_r + 6
+    if left + plate_w > img_w - margin:
+        left_alt = cx - badge_r - 6 - plate_w
+        left = left_alt if left_alt >= margin else (img_w - margin - plate_w)
+    left = max(margin, left)
+
+    top = cy - plate_h // 2
+    top = max(margin, min(top, img_h - margin - plate_h))
+
+    rgb = _hex_to_rgb(color)
     try:
-        draw.rounded_rectangle([left, top, right, bottom], radius=6,
+        draw.rounded_rectangle([left, top, left + plate_w, top + plate_h], radius=6,
                                fill=(255, 255, 255), outline=rgb, width=2)
     except AttributeError:
-        draw.rectangle([left, top, right, bottom], fill=(255, 255, 255), outline=rgb, width=2)
+        draw.rectangle([left, top, left + plate_w, top + plate_h], fill=(255, 255, 255), outline=rgb, width=2)
 
     ty = top + pad_y
     for ln in lines:
@@ -242,10 +266,7 @@ def process_screenshot_with_annotations(
                 # Текстовая подпись (надпись) рядом с бейджем — чтобы выгружалась в экспорт
                 label = (ann.get('label') or '').strip()
                 if label:
-                    # Перенос ограничиваем расстоянием до правого края картинки
-                    max_w = max(120, img_width - (bx + badge_r + 6) - 24)
-                    max_w = min(max_w, int(img_width * 0.45))
-                    _draw_label(draw, bx, by, label, color, badge_r, max_w)
+                    _draw_label(draw, bx, by, label, color, badge_r, img_width, img_height)
         
         # Рисуем маркер если координаты переданы (CSS → пиксели картинки)
         if marker_x is not None and marker_y is not None:

@@ -1,0 +1,23 @@
+# GPU override для ollama.
+# =========================
+# Базовый docker-compose.yml поднимает ollama на CPU (работает везде).
+# Этот файл добавляет проброс NVIDIA GPU в контейнер ollama.
+#
+# Требования на хосте:
+#   - NVIDIA-драйверы
+#   - NVIDIA Container Toolkit
+#
+# Запуск со включённым GPU:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Без этого файла всё работает на CPU (медленнее, но без доп. настройки).
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

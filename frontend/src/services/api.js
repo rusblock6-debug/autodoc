@@ -100,6 +100,9 @@ export const guidesApi = {
   
   // Получить статус AI обработки
   getAIStatus: (guideId) => api.get(`/guides/${guideId}/ai-status`),
+
+  // Отменить выполняющуюся AI обработку
+  cancelAI: (guideId) => api.post(`/guides/${guideId}/cancel-ai`),
 }
 
 // === Steps API ===

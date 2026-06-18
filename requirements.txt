@@ -39,6 +39,9 @@ chatterbox-tts==0.1.7
 # Edge TTS (быстрая онлайн озвучка от Microsoft)
 edge-tts>=6.1.0
 
+# Silero TTS (нейронная русская озвучка v5_5_ru, локально) + чтение чисел
+num2words>=0.5.13
+
 # === Video Processing ===
 opencv-python>=4.9.0
 Pillow>=10.2.0
