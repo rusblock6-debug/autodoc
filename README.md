@@ -1,107 +1,102 @@
 # AutoDoc AI System (MVP)
 
 Автоматическая платформа для генерации обучающего контента из записей экрана.
+Пользователь говорит и кликает — система извлекает скриншоты по кликам, расшифровывает
+речь, превращает её в чёткие инструкции и собирает пошаговый гайд и короткое
+вертикальное видео (Shorts). Все AI-модели работают локально.
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
-1. **Запустите систему:**
-```bash
-docker-compose up -d
-```
+1. Запустите систему:
 
-2. **Установите расширение Chrome:**
+   ```bash
+   docker compose up -d
+   ```
+
+   При первом запуске сервис `ollama-init` один раз скачает модели в volume
+   (`qwen2.5:3b` и `qwen2.5vl:3b`) — это требует интернета только на первом `up`.
+
+2. Установите расширение Chrome:
    - Откройте `chrome://extensions/`
-   - Включите "Режим разработчика"  
-   - Нажмите "Загрузить распакованное расширение"
+   - Включите «Режим разработчика»
+   - Нажмите «Загрузить распакованное расширение»
    - Выберите папку `extension/`
 
-3. **Создайте первый гайд:**
+3. Создайте первый гайд:
    - Нажмите на иконку расширения
    - Введите название записи
-   - Нажмите "Начать запись" → разрешите захват экрана
-   - **ОБЯЗАТЕЛЬНО делайте клики** на элементах страницы
-   - Нажмите "Остановить" → система откроет редактор
+   - Нажмите «Начать запись», разрешите захват экрана
+   - ОБЯЗАТЕЛЬНО делайте клики по элементам страницы (по ним строятся шаги)
+   - Нажмите «Остановить» — система откроет редактор
 
-4. **Доступ к системе:**
-   - Frontend: http://localhost:3000
-   - API Docs: http://localhost:8888/docs
+4. Доступ к системе (хост-порты по умолчанию из `.env`):
+   - Frontend: http://localhost:3001
+   - API: http://localhost:8888
+   - API Docs (Swagger): http://localhost:8888/docs
 
-5. **Редактирование гайдов:**
-   - Нажмите на название гайда в редакторе для изменения
-   - Используйте Enter для сохранения, Escape для отмены
+## AI / Vision — описания шагов
 
-## 🤖 AI / Vision — описания шагов
+Тексты шагов («Нажмите кнопку …») генерирует ollama, который запускается
+ВНУТРИ docker-стека (сервис `ollama`), поэтому «улучшить шаг» работает из коробки
+без ручного старта ollama на хосте.
 
-Тексты шагов («Нажмите кнопку …») генерирует мультимодальная (Vision) модель, которая
-смотрит на скриншот клика. **Это отдельный prerequisite: модель крутится в [ollama](https://ollama.com),
-а НЕ внутри docker-стека.** Без неё шаги останутся с заглушкой «Нажмите на элемент <тег>».
+Используются две модели:
 
-**Как поднять:**
+| Режим | Модель | Назначение |
+|-------|--------|------------|
+| Regenerate (по скриншоту) | `qwen2.5vl:3b` (vision) | смотрит на скриншот клика и описывает действие |
+| Улучшить шаг | `qwen2.5:3b` (text) | полировка грамматики и формулировок, работает мгновенно |
 
-1. Установить ollama на хост (там, где есть GPU) и скачать модель:
+Модели и адрес ollama настраиваются в `.env`:
 
-   ```bash
-   # Локальная разработка (GPU ~8 ГБ VRAM, напр. RTX 4060 Ti):
-   ollama pull qwen2.5vl:3b
-
-   # Сервер с мощным GPU (A100 и т.п.) — точнее описания:
-   ollama pull qwen2.5vl:7b      # или :32b / :72b
-   ```
-
-2. Указать модель и адрес ollama в `.env`:
-
-   ```env
-   LLM_API_BASE=http://host.docker.internal:11434/v1   # OpenAI-совместимый эндпоинт ollama
-   LLM_API_KEY=ollama                                   # любое непустое значение
-   VISION_MODEL=qwen2.5vl:3b                             # на сервере — 7b/32b
-   VISION_SEND_FULL_IMAGE=true                           # false = слать только кроп (экономит VRAM)
-   ```
-
-   - `host.docker.internal` резолвится автоматически на Docker Desktop; на Linux работает
-     через `extra_hosts: host-gateway` (уже прописано в `docker-compose.yml`).
-   - Запустить ollama на стандартном хост-порту `11434` (модель хранится в ollama, к
-     контейнерам не привязана — пересоздание контейнеров её не перекачивает).
-
-3. После правки `.env` пересоздать backend и worker, чтобы подхватили переменные:
-
-   ```bash
-   docker compose up -d autodoc-ai celery-worker
-   ```
-
-4. В редакторе гайда нажать **«Улучшить с помощью AI»** — запускается анализ скриншотов
-   (vision видит маркер клика + увеличенный фрагмент вокруг него). Прогресс виден в UI.
-
-**Проверка, что vision реально доступен из контейнера:**
-
-```bash
-docker exec autodoc-celery printenv LLM_API_BASE VISION_MODEL
-docker exec autodoc-celery python -c "import urllib.request as u; print(u.urlopen('http://host.docker.internal:11434/api/tags',timeout=5).status)"  # ждём 200
+```env
+LLM_API_BASE=http://ollama:11434/v1   # OpenAI-совместимый эндпоинт ollama внутри сети
+LLM_API_KEY=ollama                     # любое непустое значение (ollama его игнорирует)
+VISION_MODEL=qwen2.5vl:3b              # на сервере с мощным GPU — 7b/32b точнее
+TEXT_MODEL=qwen2.5:3b
+VISION_SEND_FULL_IMAGE=true            # false = слать только кроп вокруг клика (экономит VRAM)
 ```
 
-## 📋 Если что-то не работает
+В редакторе гайда:
+- «Улучшить с помощью AI» — полировка текста шага (text-модель).
+- «Перегенерировать» — анализ скриншота заново (vision-модель видит маркер клика
+  и увеличенный фрагмент вокруг него). Прогресс виден в UI.
 
-Смотрите подробную диагностику в [Documentation/EXTENSION_DEBUG_GUIDE.md](Documentation/EXTENSION_DEBUG_GUIDE.md)
+Проверка, что ollama доступна из контейнера:
 
----
+```bash
+docker exec autodoc-celery printenv LLM_API_BASE VISION_MODEL TEXT_MODEL
+docker exec autodoc-ollama ollama list   # должны быть qwen2.5:3b и qwen2.5vl:3b
+```
+
+## Если что-то не работает
+
+Смотрите подробную диагностику в [Documentation/EXTENSION_DEBUG_GUIDE.md](Documentation/EXTENSION_DEBUG_GUIDE.md).
 
 ## Концепция
 
-**AutoDoc AI** — минималистичная платформа, которая превращает запись экрана с голосом и кликами в пошаговый текстовый гайд и короткое вертикальное видео (Shorts). Пользователь говорит и кликает, система сама извлекает скриншоты по кликам, очищает речь до внятных инструкций и предоставляет удобный редактор шагов. Все AI-модели работают локально — никакие данные не покидают вашу инфраструктуру.
+AutoDoc AI — минималистичная платформа, которая превращает запись экрана с голосом и
+кликами в пошаговый текстовый гайд и короткое вертикальное видео. Расширение для браузера
+записывает экран, аудио с микрофона и логирует клики с точными координатами и таймкодами.
+Бэкенд разбивает запись на логические шаги по кликам и речевым фрагментам, извлекает
+скриншоты в моменты взаимодействий и применяет AI для нормализации речи в чёткие инструкции.
+Готовый результат можно экспортировать как Markdown или HTML, а также сгенерировать Shorts
+с озвучкой и визуальными маркерами кликов. Все AI-модели работают локально — данные не
+покидают вашу инфраструктуру.
 
 ## Ключевые возможности (MVP)
 
-Платформа автоматизирует создание обучающих материалов от записи до готового гайда и видео. Расширение для браузера записывает экран, аудио с микрофона и логирует события кликов с точными координатами и таймкодами. Бэкенд автоматически разбивает запись на логические шаги на основе кликов и речевых фрагментов, извлекает скриншоты в моменты взаимодействий и применяет AI для нормализации речи в чёткие инструкции. Готовый результат можно экспортировать как Markdown или HTML, а также сгенерировать Shorts с озвучкой и визуальными маркерами кликов.
-
 | Функционал | Описание |
 |------------|----------|
-| **Запись экрана** | Chrome-расширение записывает экран, микрофон, логирует клики |
-| **Авто-шаги** | Система разбивает сессию на шаги по кликам и речи |
-| **Нормализация** | ASR → LLM очищает «эм, ну нужно вот тут нажать» в «Нажмите кнопку „Начать“» |
-| **Маркеры кликов** | Жёлтые маркеры на скриншотах в точках кликов |
-| **Редактор шагов** | Web UI: скриншот + маркер + текст, можно редактировать |
-| **Экспорт** | Markdown или HTML со скриншотами и инструкциями |
-| **Озвучка + Shorts** | TTS на русском + сборка вертикального видео с маркерами |
-| **Приватность** | Локальные AI-модели, без внешних API |
+| Запись экрана | Chrome-расширение записывает экран, микрофон, логирует клики |
+| Авто-шаги | Система разбивает сессию на шаги по кликам и речи |
+| Нормализация | ASR + LLM очищают «эм, ну нужно вот тут нажать» в «Нажмите кнопку „Начать"» |
+| Vision-описания | Vision-модель описывает действие по скриншоту клика |
+| Маркеры кликов | Жёлтые маркеры на скриншотах в точках кликов |
+| Редактор шагов | Web UI: скриншот + маркер + текст, можно редактировать |
+| Экспорт | Markdown или HTML со скриншотами и инструкциями |
+| Озвучка + Shorts | TTS на русском + сборка вертикального видео с маркерами |
+| Приватность | Локальные AI-модели, без внешних API |
 
 ## Архитектура (MVP)
 
@@ -116,42 +111,24 @@ docker exec autodoc-celery python -c "import urllib.request as u; print(u.urlope
 │  │  │  Screen   │  │  Mic &    │  │  Click Logger           │  │    │
 │  │  │ Recording │  │  Audio    │  │  (timestamp + coords)   │  │    │
 │  │  └───────────┘  └───────────┘  └─────────────────────────┘  │    │
-│  │                               │                               │    │
-│  │                               ▼                               │    │
-│  │                    POST /api/v1/sessions/upload               │    │
+│  │                          │                                   │    │
+│  │                          ▼  POST /api/v1/sessions/upload     │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                │                                    │
 │                                ▼                                    │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │                      FastAPI Backend                         │    │
-│  │  ┌─────────────┐  ┌────────────────────────────────────────┐│    │
-│  │  │   Session   │  │         Processing Pipeline            ││    │
-│  │  │   Storage   │  │  ┌──────────┐  ┌────────────────────┐  ││    │
-│  │  │             │  │  │  ASR     │  │  Step Detector      │  ││    │
-│  │  │  PostgreSQL │  │  │Whisper   │──│  (clicks + speech)  │  ││    │
-│  │  │  (Sessions) │  │  └──────────┘  └────────────────────┘  ││    │
-│  │  └─────────────┘  │         │                │              ││    │
-│  │                   │         ▼                ▼              ││    │
-│  │                   │  ┌──────────┐  ┌────────────────────┐  ││    │
-│  │                   │  │   LLM    │  │ Screenshot Extractor│  ││    │
-│  │                   │  │ Normalize│  │  (FFmpeg)           │  ││    │
-│  │                   │  └──────────┘  └────────────────────┘  ││    │
-│  │                   └────────────────────────────────────────┘│    │
-│  │                               │                               │    │
-│  │         ┌─────────────────────┼─────────────────────┐        │    │
-│  │         ▼                     ▼                     ▼        │    │
-│  │  ┌─────────────┐      ┌─────────────┐      ┌────────────────┐ │    │
-│  │  │  Guide CRUD │      │Step Editor  │      │ Shorts Gen     │ │    │
-│  │  │  (REST API) │      │ (Web UI)    │      │ (TTS + Video)  │ │    │
-│  │  └─────────────┘      └─────────────┘      └────────────────┘ │    │
+│  │   ASR (Whisper) → Step Detector (clicks + speech) →          │    │
+│  │   LLM Normalize (ollama) + Screenshot Extractor (FFmpeg)     │    │
+│  │   → Guide CRUD / Step Editor / Shorts Gen (TTS + Video)      │    │
 │  └─────────────────────────────────────────────────────────────┘    │
-│                                │                                    │
-│         ┌──────────────────────┼──────────────────────┐             │
-│         ▼                      ▼                      ▼             │
-│  ┌─────────────┐      ┌─────────────┐      ┌────────────────┐      │
-│  │ PostgreSQL  │      │   Local FS  │      │   Local AI     │      │
-│  │ (Guides)    │      │ (Files)     │      │   Models       │      │
-│  └─────────────┘      └─────────────┘      └────────────────┘      │
+│         │                  │                  │            │         │
+│         ▼                  ▼                  ▼            ▼         │
+│  ┌────────────┐    ┌────────────┐    ┌────────────┐  ┌──────────┐   │
+│  │ PostgreSQL │    │  Local FS  │    │   ollama   │  │  React   │   │
+│  │ (Guides)   │    │  (/data)   │    │ (LLM/Vis.) │  │ Frontend │   │
+│  └────────────┘    └────────────┘    └────────────┘  └──────────┘   │
+│        Celery worker + Redis — фоновая обработка AI-задач            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,681 +136,242 @@ docker exec autodoc-celery python -c "import urllib.request as u; print(u.urlope
 
 ### Базовые технологии
 
-Платформа использует современный стек технологий для обеспечения производительности и удобства разработки. FastAPI служит основным веб-фреймворком, обеспечивая высокую скорость работы, автоматическую валидацию данных через Pydantic и встроенную генерацию документации Swagger и OpenAPI. PostgreSQL используется для хранения всех данных о гайдах, шагах и сессиях записи. **Локальное файловое хранилище** хранит видео, аудио и извлечённые скриншоты напрямую в файловой системе. Redis работает как брокер задач Celery для асинхронной обработки AI-операций.
-
 | Компонент | Технология | Назначение |
 |-----------|------------|------------|
-| **Backend** | FastAPI + Python 3.10 | REST API, бизнес-логика |
-| **Database** | PostgreSQL 15 | Хранение гайдов, шагов, сессий |
-| **Queue** | Redis 7 + Celery | Фоновая обработка AI-задач |
-| **Storage** | Local File System | Видео, аудио, скриншоты в `/data` |
-| **Browser Extension** | Chrome Extension | Запись экрана, кликов, аудио |
+| Backend | FastAPI + Python 3.10 | REST API, бизнес-логика |
+| Frontend | React + Vite + Tailwind CSS | Web UI редактора гайдов |
+| Database | PostgreSQL 15 | Хранение гайдов, шагов, сессий |
+| Queue | Redis 7 + Celery | Фоновая обработка AI-задач |
+| Storage | Local File System | Видео, аудио, скриншоты в `/data` |
+| Browser Extension | Chrome Extension | Запись экрана, кликов, аудио |
 
 ### AI/ML технологии (локальные)
 
-Все AI-модели работают исключительно локально на вашем GPU. Это обеспечивает полную приватность данных — никакие видео, аудио или тексты не покидают вашу инфраструктуру. Whisper выполняет автоматическое распознавание речи, преобразуя аудиозапись в текст с таймкодами. Локальная LLM через llama-cpp-python нормализует распознанную речь, превращая «эм, ну нужно вот тут нажать на начать» в чёткую инструкцию «Нажмите кнопку „Начать“». TTS генерирует озвучку для Shorts на русском языке.
+Все AI-модели работают локально. Whisper расшифровывает речь в текст с таймкодами.
+ollama (внутри docker-стека) выполняет нормализацию речи и vision-описания по скриншотам.
+TTS генерирует озвучку для Shorts на русском.
 
-| Компонент | Модель | Формат | Назначение |
-|-----------|--------|--------|------------|
-| **ASR** | OpenAI Whisper (medium) | PyTorch CUDA | Распознавание речи → текст + таймкоды |
-| **LLM** | Qwen 2.5 7B / Llama 3.1 8B | GGUF (llama-cpp) | Нормализация речи в инструкции |
-| **TTS** | Chatterbox v0.1.6 | Local | Эмоциональная озвучка шагов для Shorts |
-| **Video** | FFmpeg | CUDA | Извлечение скриншотов, сборка Shorts |
+| Компонент | Модель / движок | Назначение |
+|-----------|-----------------|------------|
+| ASR | OpenAI Whisper (medium) | Распознавание речи → текст + таймкоды |
+| LLM (текст) | ollama `qwen2.5:3b` | Нормализация речи, полировка шагов |
+| Vision | ollama `qwen2.5vl:3b` | Описание действия по скриншоту клика |
+| TTS | Silero (по умолчанию) / Edge-TTS / Chatterbox | Озвучка шагов для Shorts |
+| Video | FFmpeg | Извлечение скриншотов, сборка Shorts |
+
+TTS-движок выбирается параметром `tts_engine` при генерации Shorts:
+- `silero` — офлайн, русские голоса (`xenia`, `baya`, `aidar`, `eugene`, `kseniya`),
+  модель хранится локально, интернет не нужен.
+- `edge` — Microsoft Edge TTS, требует интернет, голос `ru-RU-SvetlanaNeural` и др.
+- `chatterbox` — нейронная озвучка с эмоциональной окраской.
 
 ### Требования к инфраструктуре
 
-Для запуска MVP требуется Docker с поддержкой GPU NVIDIA. Система протестирована на Ubuntu 22.04 с драйверами NVIDIA версии 535 и выше. Минимальная конфигурация включает 8GB VRAM, 16GB RAM и 100GB SSD.
-
 ```
-Требования к серверу:
 ├── Docker Engine >= 24.0
 ├── Docker Compose >= 2.20
-├── NVIDIA Container Toolkit
-├── NVIDIA GPU (минимум 8GB VRAM)
-├── 16GB RAM (минимум)
-└── 100GB SSD storage
+├── ~16 GB RAM
+└── GPU NVIDIA опционально — ускоряет ollama и Whisper.
+    Dev-образ работает на CPU (WHISPER_DEVICE=cpu); для CUDA используйте
+    docker-compose.gpu.yml и настройте NVIDIA Container Toolkit.
 ```
-
-## 📚 Документация
-
-### На русском языке
-
-- 📦 **[Руководство по установке](INSTALLATION_GUIDE_RU.md)** — подробная инструкция по установке на ваш ПК
-- 📖 **[Руководство пользователя](USER_GUIDE_RU.md)** — полное руководство по использованию системы
-- 🎯 **[Обзор проекта](PROJECT_OVERVIEW_RU.md)** — архитектура и технические детали
-- 📋 **[Шпаргалка](CHEATSHEET_RU.md)** — быстрый справочник команд и API
-
-### English
-
-- 🚀 **[Quick Start](QUICK_START.md)** — get started in 3 steps
-- 📖 **[Usage Guide](USAGE.md)** — detailed usage instructions
-- 🚢 **[Deployment Guide](DEPLOYMENT.md)** — production deployment
-
----
-
-## Быстрый старт
-
-### Предварительная подготовка
-
-Перед установкой убедитесь, что Docker и NVIDIA Container Toolkit настроены правильно:
-
-```bash
-# Проверка Docker
-docker --version          # Ожидается: Docker version 24.0+
-docker compose version    # Ожидается: Docker Compose version v2.20+
-
-# Проверка NVIDIA GPU (обязательно для AI!)
-nvidia-smi
-# Ожидается: информация о GPU без ошибок
-```
-
-### Запуск системы
-
-```bash
-# 1. Клонируйте репозиторий
-git clone <repository-url>
-cd autodoc_ai
-
-# 2. Создайте директории для данных
-mkdir -p data/models data/uploads data/output
-
-# 3. Настройте окружение
-cp .env.example .env
-# Отредактируйте .env при необходимости
-
-# 4. Запустите все сервисы
-docker-compose up -d
-
-# 5. Проверьте статус
-docker-compose ps
-
-# 6. Проверьте API
-curl http://localhost:8000/health
-```
-
-### Проверка работоспособности
-
-После запуска API должен вернуть:
-
-```json
-{
-  "status": "healthy",
-  "database": "connected",
-  "redis": "connected",
-  "gpu_available": true
-}
-
-Документация API доступна по адресу http://localhost:8888/docs
-
-### Доступ к сервисам
-
-| Сервис | URL | Учётные данные |
-|--------|-----|----------------|
-| **API** | http://localhost:8888 | — |
-| **Swagger Docs** | http://localhost:8888/docs | — |
-| **pgAdmin** | http://localhost:5050 | admin@autodoc.local / admin |
-
-**Примечание**: Файлы хранятся локально в директории `/data`
 
 ## Конфигурация
 
-### Переменные окружения
-
-Создайте файл `.env` в корневой директории проекта:
+Все настройки задаются в файле `.env` в корне проекта. Ключевые блоки:
 
 ```env
-# =============================================================================
-# БАЗОВАЯ КОНФИГУРАЦИЯ
-# =============================================================================
-APP_NAME=AutoDoc AI System
-APP_VERSION=1.0.0
-DEBUG=true
-ENVIRONMENT=development
+# === Хост-порты (вынесены, чтобы не конфликтовать с другими проектами) ===
+API_PORT=8888              # http://localhost:8888 → контейнер :8000
+FRONTEND_PORT=3001
+POSTGRES_HOST_PORT=15432
 
-# =============================================================================
-# POSTGRESQL DATABASE
-# =============================================================================
+# === PostgreSQL ===
 DATABASE_HOST=postgres
-DATABASE_PORT=5432
 DATABASE_USER=autodoc
 DATABASE_PASSWORD=autodoc_secret
 DATABASE_NAME=autodoc_db
 
-# =============================================================================
-# REDIS QUEUE (Celery Broker)
-# =============================================================================
+# === Redis ===
 REDIS_HOST=redis
 REDIS_PORT=6379
-REDIS_DB=0
-REDIS_URL=redis://redis:6379/0
 
-# =============================================================================
-# ЛОКАЛЬНОЕ ХРАНИЛИЩЕ
-# =============================================================================
-STORAGE_BASE_PATH=/data  # Путь к локальному хранилищу
-
-# =============================================================================
-# AI MODELS - ПОЛНОСТЬЮ ЛОКАЛЬНЫЕ (ПРИВАТНОСТЬ!)
-# =============================================================================
-# ASR: Whisper для распознавания речи
+# === ASR (Whisper) ===
 WHISPER_MODEL_SIZE=medium
-WHISPER_DEVICE=cuda
+WHISPER_DEVICE=cpu          # cuda или cpu (dev-образ без CUDA → cpu)
 
-# LLM: Локальная модель через llama-cpp-python (GGUF формат)
-# Qwen2.5-7B-Instruct-GGUF: 4.7GB, влезает в 8GB VRAM
-LLM_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct-GGUF
-LLM_MODEL_PATH=/data/models/Qwen2.5-7B-Instruct-Q4_0.gguf
-LLM_THREADS=8
-LLM_CONTEXT_SIZE=4096
-LLM_MAX_TOKENS=2048
-LLM_TEMPERATURE=0.7
+# === LLM / Vision (ollama внутри стека) ===
+LLM_API_BASE=http://ollama:11434/v1
+LLM_API_KEY=ollama
+VISION_MODEL=qwen2.5vl:3b
+TEXT_MODEL=qwen2.5:3b
+VISION_SEND_FULL_IMAGE=true
 
-# Внешние API отключены - всё работает локально!
-LLM_API_KEY=
-
-# TTS: Озвучка для Shorts
-TTS_ENGINE=edge-tts
+# === TTS ===
+TTS_ENGINE=silero           # silero / edge-tts / chatterbox
 EDGE_TTS_VOICE=ru-RU-SvetlanaNeural
 
-# =============================================================================
-# GPU КОНФИГУРАЦИЯ
-# =============================================================================
-GPU_DEVICE_ID=0
-GPU_MEMORY_FRACTION=0.8
-NVIDIA_VISIBLE_DEVICES=all
-
-# =============================================================================
-# ПУТИ
-# =============================================================================
-WORKER_TEMP_DIR=/tmp/autodoc_worker_temp
+# === Video ===
+SHORTS_WIDTH=1080
+SHORTS_HEIGHT=1920
+SHORTS_FPS=60
 ```
 
-### Структура томов Docker
+### Docker-сервисы
+
+| Сервис | Контейнер | Назначение |
+|--------|-----------|------------|
+| autodoc-ai | autodoc-ai | FastAPI backend |
+| autodoc-frontend | autodoc-frontend | React + Vite UI |
+| postgres | autodoc-postgres | База данных |
+| redis | autodoc-redis | Брокер задач Celery |
+| ollama | autodoc-ollama | Локальный LLM / Vision бэкенд |
+| ollama-init | autodoc-ollama-init | One-shot: скачивает модели в volume |
+| celery-worker | autodoc-celery | Фоновая обработка AI-задач |
+
+### Структура данных (`./data`)
 
 ```
 ./data/                    → /data (основные данные)
-├── models/                → /data/models (AI модели GGUF)
-├── uploads/               → /data/uploads (загруженные сессии)
-├── output/                → /data/output (готовые Shorts)
-└── screenshots/           → /data/screenshots (извлечённые скриншоты)
+├── models/                AI-модели
+├── torch_hub/             кэш Silero TTS (в .gitignore, не коммитится)
+├── uploads/               загруженные сессии
+├── screenshots/           извлечённые скриншоты
+├── audio/                 сгенерированная озвучка
+└── output/                готовые Shorts
 ```
 
 ## API Endpoints
 
 ### Сессии записи
 
-Работа с загруженными сессиями записи:
-
 ```http
-# Загрузить новую сессию (видео + аудио + лог клиентов)
-POST /api/v1/sessions/upload
-Content-Type: multipart/form-data
-
-file_video: (video.webm)
-file_audio: (audio.wav)
-file_clicks: (clicks.json)
-
-# Ответ:
-{
-  "session_id": "uuid-сессии",
-  "status": "uploaded",
-  "duration_seconds": 120
-}
-
-# Список всех сессий
-GET /api/v1/sessions?status=all&page=1&page_size=20
-
-# Получить сессию
-GET /api/v1/sessions/{session_id}
-
-# Удалить сессию
-DELETE /api/v1/sessions/{session_id}
+POST   /api/v1/sessions/upload        # Загрузить сессию (видео + аудио + лог кликов)
+GET    /api/v1/sessions               # Список сессий
+GET    /api/v1/sessions/{session_id}  # Получить сессию
+DELETE /api/v1/sessions/{session_id}  # Удалить сессию
 ```
 
 ### Гайды (CRUD)
 
-Базовые операции с гайдами:
-
 ```http
-# Создать гайд из сессии
-POST /api/v1/guides
-Content-Type: application/json
-
-{
-  "session_id": "uuid-сессии",
-  "title": "Как создать документ",
-  "language": "ru"
-}
-
-# Список гайдов
-GET /api/v1/guides?page=1&page_size=20
-
-# Получить гайд со всеми шагами
-GET /api/v1/guides/{guide_id}
-
-# Обновить гайд
-PATCH /api/v1/guides/{guide_id}
-Content-Type: application/json
-
-{
-  "title": "Обновлённое название",
-  "is_published": true
-}
-
-# Удалить гайд
-DELETE /api/v1/guides/{guide_id}
+POST   /api/v1/guides                 # Создать гайд из сессии
+GET    /api/v1/guides                 # Список гайдов
+GET    /api/v1/guides/{guide_id}      # Гайд со всеми шагами
+PATCH  /api/v1/guides/{guide_id}      # Обновить гайд
+DELETE /api/v1/guides/{guide_id}      # Удалить гайд
 ```
 
 ### Шаги (редактирование)
 
-Операции с шагами внутри гайда:
-
 ```http
-# Получить все шаги гайда
-GET /api/v1/guides/{guide_id}/steps
-
-# Обновить текст шага (нормализация)
-PATCH /api/v1/steps/{step_id}
-Content-Type: application/json
-
-{
-  "instruction_text": "Нажмите кнопку 'Создать документ'"
-}
-
-# Изменить позицию маркера на скриншоте
-PATCH /api/v1/steps/{step_id}/marker
-Content-Type: application/json
-
-{
-  "marker_x": 450,
-  "marker_y": 320
-}
-
-# Переместить шаг (изменить порядок)
-PATCH /api/v1/steps/{step_id}/reorder
-Content-Type: application/json
-
-{
-  "new_position": 2
-}
-
-# Удалить шаг
-DELETE /api/v1/steps/{step_id}
-
-# Объединить несколько шагов
-POST /api/v1/steps/merge
-Content-Type: application/json
-
-{
-  "step_ids": [1, 2],
-  "merged_instruction": "Нажмите Создать и заполните форму"
-}
+GET    /api/v1/guides/{guide_id}/steps    # Все шаги гайда
+PATCH  /api/v1/steps/{step_id}            # Обновить текст шага
+PATCH  /api/v1/steps/{step_id}/marker     # Сдвинуть маркер на скриншоте
+PATCH  /api/v1/steps/{step_id}/reorder    # Изменить порядок
+DELETE /api/v1/steps/{step_id}            # Удалить шаг
+POST   /api/v1/steps/merge                # Объединить шаги
 ```
 
 ### Экспорт
 
-Генерация готового гайда в текстовом формате:
-
 ```http
-# Экспорт в Markdown
-GET /api/v1/guides/{guide_id}/export/markdown
-
-# Экспорт в HTML
-GET /api/v1/guides/{guide_id}/export/html
-
-# Ответ (Markdown):
-# # Как создать документ
-#
-# ## Шаг 1
-# ![Screenshot](screenshots/step_1.png)
-# Нажмите кнопку "Создать документ"
-#
-# ## Шаг 2
-# ![Screenshot](screenshots/step_2)
-# Введите название документа
+GET    /api/v1/guides/{guide_id}/export/markdown
+GET    /api/v1/guides/{guide_id}/export/html
 ```
 
 ### Генерация Shorts
 
-Создание вертикального видео с озвучкой:
-
 ```http
-# Запустить генерацию Shorts
-POST /api/v1/guides/{guide_id}/shorts/generate
-Content-Type: application/json
-
-{
-  "tts_voice": "ru-RU-SvetlanaNeural",
-  "target_platform": "tiktok",
-  "duration_per_step": 5,
-  "add_music": false
-}
-
-# Ответ:
-{
-  "task_id": "uuid-задачи",
-  "status": "queued",
-  "estimated_time": 120
-}
-
-# Проверить статус генерации
-GET /api/v1/shorts/{task_id}/status
-
-# Скачать готовый Shorts
-GET /api/v1/shorts/{task_id}/download
+POST   /api/v1/guides/{guide_id}/shorts/generate   # Запустить генерацию
+GET    /api/v1/shorts/{task_id}/status             # Статус генерации
+GET    /api/v1/shorts/{task_id}/download           # Скачать готовый Shorts
 ```
 
-## Структура проекта
-
-```
-autodoc_ai/
-├── app/                              # Основное приложение
-│   ├── api/                          # API endpoints (FastAPI Router)
-│   │   ├── __init__.py
-│   │   ├── sessions.py               # Загрузка сессий
-│   │   ├── guides.py                 # CRUD гайдов
-│   │   ├── steps.py                  # Редактирование шагов
-│   │   ├── export.py                 # Экспорт Markdown/HTML
-│   │   └── shorts.py                 # Генерация Shorts
-│   ├── core/                         # Конфигурация и безопасность
-│   │   ├── config.py                 # Pydantic Settings
-│   │   ├── security.py               # JWT (опционально)
-│   │   └── database.py               # PostgreSQL подключение
-│   ├── models/                       # SQLAlchemy модели
-│   │   ├── __init__.py
-│   │   ├── session.py                # Модель сессии записи
-│   │   ├── guide.py                  # Модель гайда
-│   │   └── step.py                   # Модель шага
-│   ├── schemas/                      # Pydantic схемы (DTO)
-│   │   ├── __init__.py
-│   │   ├── session.py
-│   │   ├── guide.py
-│   │   └── step.py
-│   ├── services/                     # Бизнес-логика
-│   │   ├── __init__.py
-│   │   ├── asr_service.py            # Whisper (ASR)
-│   │   ├── llm_service.py            # LLM нормализация
-│   │   ├── step_detector.py          # Выделение шагов
-│   │   ├── screenshot_service.py     # Извлечение скриншотов
-│   │   ├── tts_service.py            # TTS озвучка
-│   │   └── shorts_generator.py       # Сборка Shorts
-│   ├── tasks.py                      # Celery задачи
-│   └── main.py                       # FastAPI приложение
-├── extension/                        # Chrome Extension
-│   ├── manifest.json
-│   ├── background.js
-│   ├── content.js
-│   ├── popup.html
-│   └── popup.js
-├── tests/                            # Тесты
-│   ├── __init__.py
-│   └── test_*.py
-├── data/                             # Локальные данные
-│   ├── models/                       # AI модели (GGUF)
-│   ├── uploads/                      # Загруженные сессии
-│   ├── screenshots/                  # Извлечённые скриншоты
-│   └── output/                       # Готовые Shorts
-├── Dockerfile                        # Docker образ
-├── docker-compose.yml                # Docker Compose
-├── requirements.txt                  # Python зависимости
-├── .env.example                      # Пример конфигурации
-└── README.md                         # Этот файл
-```
+Полная интерактивная документация — в Swagger: http://localhost:8888/docs.
 
 ## Поток обработки данных
 
-### Шаг 1: Запись (Browser Extension)
-
-Пользователь устанавливает Chrome-расширение и нажимает «Записать». Расширение захватывает экран через MediaRecorder API, записывает аудио с микрофона и логирует каждый клик с точными координатами и таймкодами. По завершении все данные отправляются на бэкенд.
-
-```javascript
-// Пример лога кликов (extension/content.js)
-{
-  "clicks": [
-    {
-      "timestamp": 5.234,   // секунды от начала записи
-      "x": 450,
-      "y": 320,
-      "element": "button"
-    },
-    {
-      "timestamp": 12.891,
-      "x": 780,
-      "y": 450,
-      "element": "input"
-    }
-  ]
-}
-```
-
-### Шаг 2: Загрузка и хранение
-
-Бэкенд принимает загруженные файлы, сохраняет их локально в `/data` и создаёт запись сессии в PostgreSQL с метаданными, включая длительность, количество кликов и статус обработки.
-
-### Шаг 3: ASR — распознавание речи
-
-Celery-воркер запускает Whisper для преобразования аудио в текст с таймкодами:
-
-```python
-# app/services/asr_service.py
-import whisper
-
-def transcribe_with_timestamps(audio_path: str) -> dict:
-    model = whisper.load_model("medium")
-    result = model.transcribe(audio_path, word_timestamps=True)
-    
-    # Результат:
-    # {
-    #   "text": "нужно нажать на кнопку начать...",
-    #   "segments": [
-    #     {"start": 5.0, "end": 8.0, "text": "нужно нажать"},
-    #     {"start": 8.0, "end": 12.0, "text": "на кнопку начать"}
-    #   ]
-    # }
-    return result
-```
-
-### Шаг 4: Выделение шагов
-
-Алгоритм разбивает сессию на шаги на основе кликов и ближайших речевых фрагментов:
-
-```python
-# app/services/step_detector.py
-def detect_steps(clicks: list, transcription: dict) -> list:
-    steps = []
-    
-    for click in clicks:
-        # Найти ближайший речевой сегмент к клику
-        nearest_segment = find_nearest_segment(click["timestamp"], transcription)
-        
-        steps.append({
-            "click_timestamp": click["timestamp"],
-            "click_x": click["x"],
-            "click_y": click["y"],
-            "raw_speech": nearest_segment["text"],
-            "speech_start": nearest_segment["start"],
-            "speech_end": nearest_segment["end"]
-        })
-    
-    return steps
-```
-
-### Шаг 5: LLM — нормализация речи
-
-Локальная LLM очищает распознанную речь от «эм», «ну», повторов и преобразует в чёткие инструкции:
-
-```python
-# app/services/llm_service.py
-def normalize_instruction(raw_speech: str) -> str:
-    prompt = f"""
-Преобразуй речь в краткую чёткую инструкцию.
-Убери "эм", "ну", повторы, слова-паразиты.
-Говори повелительным тоном на "вы".
-
-Вход: "{raw_speech}"
-Выход: "Нажмите кнопку 'Начать'"
-"""
-    
-    result = llm(prompt, max_tokens=100, temperature=0.3)
-    return result.strip('"').strip()
-```
-
-### Шаг 6: Извлечение скриншотов
-
-FFmpeg извлекает кадры в момент каждого клика:
-
-```bash
-# app/services/screenshot_service.py
-ffmpeg -i input.webm -ss 00:00:05.234 -vframes 1 \
-  -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
-  screenshots/step_1.png
-```
-
-### Шаг 7: Редактирование (Web UI)
-
-Пользователь открывает Web UI и видит последовательность шагов. Каждый шаг показывает скриншот с жёлтым маркером в точке клика, оригинальную речь и нормализованную инструкцию. Пользователь может редактировать текст, перетаскивать маркеры, менять порядок шагов, удалять или объединять их.
-
-### Шаг 8: Экспорт
-
-После подтверждения пользователь может экспортировать гайд в Markdown или HTML со встроенными скриншотами.
-
-### Шаг 9: Генерация Shorts
-
-Если пользователь хочет видео, система генерирует Shorts:
-
-```python
-# app/services/shorts_generator.py
-def generate_shorts(guide: Guide, steps: list) -> str:
-    """
-    Пошаговый процесс:
-    1. TTS генерирует аудио для каждого шага
-    2. FFmpeg собирает вертикальное видео:
-       - Берёт скриншот шага
-       - Рисует маркер клика
-       - Накладывает озвучку
-       - Добавляет заголовок "Шаг N"
-    3. Склеивает все шаги в одно видео
-    """
-    
-    for step in steps:
-        # Генерация озвучки
-        audio_path = tts.generate(f"Шаг {step.order}. {step.instruction}")
-        
-        # Сборка кадра
-        ffmpeg -i step_screenshot.png \
-          -i marker_overlay.png \
-          -i audio.wav \
-          -filter_complex "[0][1]overlay" \
-          step_output.mp4
-    
-    # Склейка всех шагов
-    ffmpeg -f concat -i steps_list.txt -c copy shorts_final.mp4
-    
-    return output_path
-```
-
-## AI-модели и производительность
-
-### Оптимальные конфигурации GPU
-
-| GPU VRAM | Whisper | LLM Model | Квантизация | Notes |
-|----------|---------|-----------|-------------|-------|
-| 8 GB | medium | Qwen 2.5 7B | Q4_0 | Оптимально для MVP |
-| 16 GB | medium | Qwen 2.5 7B | Q5_1 | Лучшее качество |
-| 24 GB | large-v3 | Llama 3.1 8B | Q4_0 | Максимальное качество |
-
-### Скачивание моделей
-
-Модели скачиваются автоматически при первом запуске:
-
-```bash
-# Whisper (автоматически через pip install openai-whisper)
-# Qwen 2.5 7B GGUF (~4.7GB)
-# Скачивается huggingface-hub в /data/models/
-
-# Проверка моделей
-ls -la data/models/
-# Ожидается:
-# Qwen2.5-7B-Instruct-Q4_0.gguf
-```
-
-## Безопасность и приватность
-
-Система спроектирована с учётом максимальной приватности. Все AI-модели работают локально — никакие видео, аудио, тексты или метаданные не передаются во внешние сервисы. Данные хранятся в вашей инфраструктуре под вашим полным контролем. Никаких внешних API, таких как OpenAI или Anthropic, не требуется.
-
-```
-ПРИВАТНОСТЬ (всё локально):
-├── Whisper (PyTorch CUDA)              Локально
-├── Qwen/Llama (llama-cpp-python GGUF)  Локально
-├── Chatterbox TTS                      Локально
-├── Local File Storage                  Локально
-├── PostgreSQL                          Локально
-└── Внешние API (OpenAI, Anthropic)     Не используются
-```
+1. Запись (Chrome Extension) — захват экрана через MediaRecorder API, аудио с микрофона,
+   лог кликов с координатами и таймкодами. По завершении всё отправляется на бэкенд.
+2. Загрузка и хранение — бэкенд сохраняет файлы в `/data` и создаёт запись сессии в PostgreSQL.
+3. ASR — Celery-воркер запускает Whisper, получает текст с таймкодами.
+4. Выделение шагов — алгоритм разбивает сессию на шаги по кликам и ближайшим речевым сегментам.
+5. Нормализация (LLM) — ollama (`qwen2.5:3b`) превращает сырую речь в чёткие инструкции;
+   vision-модель (`qwen2.5vl:3b`) при необходимости описывает действие по скриншоту.
+6. Извлечение скриншотов — FFmpeg достаёт кадры в момент каждого клика и рисует маркер.
+7. Редактирование (Web UI) — пользователь правит текст, двигает маркеры, меняет порядок,
+   удаляет или объединяет шаги.
+8. Экспорт — Markdown или HTML со встроенными скриншотами.
+9. Генерация Shorts — TTS озвучивает шаги, FFmpeg собирает вертикальное видео с маркерами.
 
 ## Разработка
 
-### Локальный запуск без Docker
+### Запуск и логи
 
 ```bash
-# 1. Создайте виртуальное окружение
-python -m venv venv
-source venv/bin/activate
+# Поднять весь стек
+docker compose up -d
 
-# 2. Установите зависимости
+# Статус сервисов
+docker compose ps
+
+# Логи бэкенда / воркера
+docker compose logs -f autodoc-ai
+docker compose logs -f celery-worker
+
+# Health-check API
+curl http://localhost:8888/health
+```
+
+### Локальный запуск backend без Docker
+
+```bash
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# 3. Запустите внешние сервисы (PostgreSQL, Redis)
-#    или используйте docker-compose для них:
-docker-compose up -d postgres redis
+# Поднять зависимости в Docker
+docker compose up -d postgres redis ollama
 
-# 4. Запустите приложение
+# Backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# 5. Запустите Celery воркер (отдельный терминал)
-celery -A app.tasks worker --loglevel=info
+# Celery-воркер (отдельный терминал)
+celery -A app.celery worker --loglevel=info
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
 ### Тестирование
 
 ```bash
-# Запуск тестов
 pytest tests/ -v
-
-# Тесты с покрытием
 pytest tests/ --cov=app --cov-report=html
 ```
 
 ### Установка Chrome Extension
 
-```bash
-# В Chrome:
-# 1. Откройте chrome://extensions/
-# 2. Включите "Режим разработчика"
-# 3. Нажмите "Загрузить распакованное расширение"
-# 4. Выберите папку extension/
+```
+1. Откройте chrome://extensions/
+2. Включите «Режим разработчика»
+3. Нажмите «Загрузить распакованное расширение»
+4. Выберите папку extension/
 ```
 
-## Мониторинг
+## Безопасность и приватность
 
-```bash
-# Проверка здоровья API
-curl http://localhost:8000/health
-
-# Логи приложения
-docker-compose logs -f autodoc-ai
-
-# Логи Celery
-docker-compose logs -f autodoc-celery
-
-# GPU метрики
-docker-compose exec autodoc-ai nvidia-smi
-```
+Все AI-модели (Whisper, ollama, TTS) работают локально. Видео, аудио, тексты и метаданные
+не передаются во внешние сервисы (исключение — движок `edge-tts`, который обращается к
+Microsoft; для полностью офлайн-озвучки используйте `silero`). Данные хранятся в вашей
+инфраструктуре под вашим контролем.
 
 ## Лицензия
 
 MIT License — свободное использование для любых целей, включая коммерческие.
-
----
-
-**AutoDoc AI System (MVP)** — Превращайте записи экрана в гайды и видео за минуты. С полной приватностью.

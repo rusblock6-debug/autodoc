@@ -75,7 +75,8 @@
       "Bash(curl -s -m 5 http://localhost:11434/api/tags)",
       "Bash(tasklist)",
       "Bash(docker wait *)",
-      "Bash(curl -s -X POST http://localhost:8888/api/v1/guides/2/enhance-with-ai?mode=regenerate)"
+      "Bash(curl -s -X POST http://localhost:8888/api/v1/guides/2/enhance-with-ai?mode=regenerate)",
+      "PowerShell(git push 2>&1)"
     ]
   }
 }
