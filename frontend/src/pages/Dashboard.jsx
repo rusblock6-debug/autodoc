@@ -4,10 +4,16 @@ import { guidesApi, exportApi, storageApi } from '../services/api'
 import {
   Button, IconButton, PageSpinner, EmptyState,
   StarIcon, EditIcon, CopyIcon, TrashIcon, DownloadIcon, PlayIcon, FileIcon,
+  GridIcon, ListIcon,
   useToast, useConfirm,
 } from '../ui'
 
 const ORDER_KEY = 'autodoc:guide-order'
+const VIEW_KEY = 'autodoc:view-mode'
+
+const loadView = () => {
+  try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
+}
 
 // Сохранённый пользователем порядок (localStorage) — пока на бэке нет reorder-эндпоинта.
 const loadOrder = () => {
@@ -46,6 +52,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | favorites | drafts
+  const [view, setView] = useState(loadView) // grid | list
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
 
@@ -70,6 +77,11 @@ function Dashboard() {
   }
 
   const refresh = () => (fetchGuides ? fetchGuides() : loadGuides())
+
+  const changeView = (mode) => {
+    setView(mode)
+    try { localStorage.setItem(VIEW_KEY, mode) } catch {}
+  }
 
   const handleDelete = async (guide, e) => {
     e?.preventDefault(); e?.stopPropagation()
@@ -170,16 +182,46 @@ function Dashboard() {
           <h1 className="font-heading text-xl font-semibold text-gray-800">Руководства</h1>
           <p className="mt-0.5 text-sm text-gray-400">{guides.length} документов</p>
         </div>
-        <div className="relative">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск…"
-            className="h-9 w-64 rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-400"
-          />
-          <svg className="pointer-events-none absolute left-3 top-2.5 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск…"
+              className="h-9 w-64 rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-700 outline-none transition-colors placeholder:text-gray-400 focus:border-brand-400"
+            />
+            <svg className="pointer-events-none absolute left-3 top-2.5 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </div>
+
+          {/* Переключатель вида: плитка / список */}
+          <div className="flex h-9 items-center rounded-lg border border-gray-300 bg-white p-0.5">
+            <button
+              onClick={() => changeView('grid')}
+              title="Плиткой"
+              aria-label="Плиткой"
+              aria-pressed={view === 'grid'}
+              className={[
+                'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+                view === 'grid' ? 'bg-brand-50 text-brand-600' : 'text-gray-400 hover:text-gray-600',
+              ].join(' ')}
+            >
+              <GridIcon size={16} />
+            </button>
+            <button
+              onClick={() => changeView('list')}
+              title="Списком"
+              aria-label="Списком"
+              aria-pressed={view === 'list'}
+              className={[
+                'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+                view === 'list' ? 'bg-brand-50 text-brand-600' : 'text-gray-400 hover:text-gray-600',
+              ].join(' ')}
+            >
+              <ListIcon size={16} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -213,27 +255,38 @@ function Dashboard() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((guide) => (
-            <GuideCard
-              key={guide.id || guide.uuid}
-              guide={guide}
-              onOpen={() => navigate(`/guide/${guide.uuid}/edit`)}
-              onToggleFavorite={(e) => handleToggleFavorite(guide, e)}
-              onDuplicate={(e) => handleDuplicate(guide, e)}
-              onDelete={(e) => handleDelete(guide, e)}
-              onExport={(fmt, e) => handleExport(guide, fmt, e)}
-              draggable={filter === 'all' && !search}
-              isDragging={draggedId === guide.id}
-              isDragOver={dragOverId === guide.id}
-              onDragStart={() => setDraggedId(guide.id)}
-              onDragOver={(e) => { e.preventDefault(); if (guide.id !== draggedId) setDragOverId(guide.id) }}
-              onDragLeave={() => setDragOverId(null)}
-              onDrop={(e) => { e.preventDefault(); handleDrop(guide.id) }}
-              onDragEnd={() => { setDraggedId(null); setDragOverId(null) }}
-            />
-          ))}
-        </div>
+        (() => {
+          const itemProps = (guide) => ({
+            guide,
+            onOpen: () => navigate(`/guide/${guide.uuid}/edit`),
+            onToggleFavorite: (e) => handleToggleFavorite(guide, e),
+            onDuplicate: (e) => handleDuplicate(guide, e),
+            onDelete: (e) => handleDelete(guide, e),
+            onExport: (fmt, e) => handleExport(guide, fmt, e),
+            draggable: filter === 'all' && !search,
+            isDragging: draggedId === guide.id,
+            isDragOver: dragOverId === guide.id,
+            onDragStart: () => setDraggedId(guide.id),
+            onDragOver: (e) => { e.preventDefault(); if (guide.id !== draggedId) setDragOverId(guide.id) },
+            onDragLeave: () => setDragOverId(null),
+            onDrop: (e) => { e.preventDefault(); handleDrop(guide.id) },
+            onDragEnd: () => { setDraggedId(null); setDragOverId(null) },
+          })
+
+          return view === 'list' ? (
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-card">
+              {filtered.map((guide) => (
+                <GuideRow key={guide.id || guide.uuid} {...itemProps(guide)} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((guide) => (
+                <GuideCard key={guide.id || guide.uuid} {...itemProps(guide)} />
+              ))}
+            </div>
+          )
+        })()
       )}
     </div>
   )
@@ -314,6 +367,65 @@ function GuideCard({
             <IconButton icon={TrashIcon} label="Удалить" tone="danger" size={30} iconSize={15} onClick={onDelete} />
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function GuideRow({
+  guide, onOpen, onToggleFavorite, onDuplicate, onDelete, onExport,
+  draggable, isDragging, isDragOver, ...dnd
+}) {
+  const badge = STATUS_BADGE[guide.status] || STATUS_BADGE.draft
+  const thumbUrl = guide.thumbnail ? storageApi.getScreenshotUrl(guide.thumbnail) : null
+
+  return (
+    <div
+      draggable={draggable}
+      {...dnd}
+      onClick={onOpen}
+      className={[
+        'group flex cursor-pointer items-center gap-4 border-b border-gray-100 px-4 py-3 transition-colors last:border-b-0',
+        isDragOver ? 'bg-brand-50' : 'hover:bg-gray-50',
+        isDragging ? 'opacity-50' : '',
+      ].join(' ')}
+    >
+      {/* Thumbnail */}
+      <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-md bg-gray-100">
+        {thumbUrl ? (
+          <img src={thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-gray-300">
+            <FileIcon size={20} />
+          </div>
+        )}
+      </div>
+
+      {/* Title + meta */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <h3 className="truncate font-heading text-sm font-semibold text-gray-800">{guide.title}</h3>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>{badge.label}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-gray-400">
+          {guide.created_at ? new Date(guide.created_at).toLocaleDateString('ru-RU') : ''}
+          {guide.step_count > 0 && <span> · {guide.step_count} шагов</span>}
+        </p>
+      </div>
+
+      {/* Actions — всегда видимы в списке, чуть ярче при наведении на строку */}
+      <div className="flex shrink-0 items-center gap-0.5 opacity-70 transition-opacity group-hover:opacity-100">
+        <IconButton
+          icon={(p) => <StarIcon {...p} filled={guide.is_favorite} />}
+          label={guide.is_favorite ? 'Убрать из избранного' : 'В избранное'}
+          tone={guide.is_favorite ? 'active' : 'default'}
+          size={32} iconSize={16}
+          onClick={onToggleFavorite}
+        />
+        <IconButton icon={CopyIcon} label="Дублировать" size={32} iconSize={15} onClick={onDuplicate} />
+        <IconButton icon={DownloadIcon} label="Скачать PDF" size={32} iconSize={15} onClick={(e) => onExport('pdf', e)} />
+        <IconButton icon={FileIcon} label="Скачать JSON" size={32} iconSize={15} onClick={(e) => onExport('json', e)} />
+        <IconButton icon={TrashIcon} label="Удалить" tone="danger" size={32} iconSize={15} onClick={onDelete} />
       </div>
     </div>
   )

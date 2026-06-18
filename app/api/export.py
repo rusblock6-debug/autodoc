@@ -445,17 +445,17 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
     <body>
         <div class="document">
             <header class="header">
-                <div class="logo">
+                <div class="brand">
                     <div class="logo-icon">НД</div>
-                    <div class="logo-text">НИР-Документ</div>
+                    <span class="brand-name">НИР-Документ</span>
                 </div>
-                <div class="guide-info">
-                    <h1>{guide.title}</h1>
-                    <div class="meta">
-                        <span>Создано: {guide.created_at.strftime('%d.%m.%Y %H:%M') if guide.created_at else 'Неизвестно'}</span>
-                        <span>Шагов: {len(steps)}</span>
-                        <span>Статус: {'Черновик' if guide.status == GuideStatus.DRAFT else 'Готов'}</span>
-                    </div>
+                <h1 class="doc-title">{guide.title}</h1>
+                <div class="meta">
+                    <span>Создано {guide.created_at.strftime('%d.%m.%Y') if guide.created_at else '—'}</span>
+                    <span class="dot">·</span>
+                    <span>{len(steps)} шагов</span>
+                    <span class="dot">·</span>
+                    <span>{'Черновик' if guide.status == GuideStatus.DRAFT else 'Готов'}</span>
                 </div>
             </header>
             
@@ -513,23 +513,21 @@ def _get_pdf_css() -> str:
     }
     
     .header {
+        padding: 0 0 16px;
+        border-bottom: 1px solid #ececec;
+        margin-bottom: 28px;
+    }
+
+    .brand {
         display: flex;
         align-items: center;
-        gap: 20px;
-        padding: 20px 0;
-        border-bottom: 2px solid #ed8d48;
-        margin-bottom: 30px;
+        gap: 8px;
+        margin-bottom: 14px;
     }
-    
-    .logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    
+
     .logo-icon {
-        width: 40px;
-        height: 40px;
+        width: 26px;
+        height: 26px;
         background: #ed8d48;
         color: white;
         border-radius: 6px;
@@ -538,29 +536,37 @@ def _get_pdf_css() -> str:
         justify-content: center;
         font-family: 'Montserrat', sans-serif;
         font-weight: 700;
-        font-size: 14px;
+        font-size: 11px;
     }
-    
-    .logo-text {
+
+    .brand-name {
         font-family: 'Montserrat', sans-serif;
-        font-size: 16px;
+        font-size: 11px;
         font-weight: 600;
-        color: #333;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: #9a9a9a;
     }
-    
-    .guide-info h1 {
+
+    .doc-title {
         font-family: 'Montserrat', sans-serif;
-        font-size: 24px;
-        font-weight: 600;
-        color: #333;
-        margin-bottom: 8px;
+        font-size: 26px;
+        font-weight: 700;
+        color: #1a1a1a;
+        line-height: 1.2;
+        margin-bottom: 10px;
     }
-    
+
     .meta {
         display: flex;
-        gap: 20px;
+        gap: 8px;
+        align-items: center;
         font-size: 12px;
-        color: #666;
+        color: #888;
+    }
+
+    .meta .dot {
+        color: #ccc;
     }
     
     .content {

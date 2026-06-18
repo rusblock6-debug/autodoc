@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { guidesApi, shortsApi } from '../services/api'
+import { VolumeIcon } from '../ui'
 
 function ShortsPreview() {
   const { guideId } = useParams()
@@ -381,9 +382,10 @@ function ShortsPreview() {
                       const audio = new Audio(`/api/v1/shorts/test-tts/${step.id}`)
                       audio.play()
                     }}
-                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs"
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs flex items-center"
+                    title="Прослушать озвучку"
                   >
-                    🔊
+                    <VolumeIcon size={14} />
                   </button>
                 </div>
               ))}

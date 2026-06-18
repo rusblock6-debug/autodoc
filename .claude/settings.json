@@ -62,7 +62,15 @@
       "Bash(npm run *)",
       "Bash(python -m py_compile app/api/guides.py app/api/sessions.py app/database.py app/models.py)",
       "Bash(python -m py_compile app/services/screenshot_processor.py app/api/export.py)",
-      "Bash(npx --no-install esbuild src/pages/StepEditor.jsx --bundle --loader:.jsx=jsx --format=esm --outfile=/dev/null --external:react --external:react-dom --external:react-router-dom)"
+      "Bash(npx --no-install esbuild src/pages/StepEditor.jsx --bundle --loader:.jsx=jsx --format=esm --outfile=/dev/null --external:react --external:react-dom --external:react-router-dom)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/ai_service.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK syntax'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\)\\) for f in ['app/services/ai_service.py','app/celery_tasks.py','app/api/guides.py']]; print\\('OK syntax all 3'\\)\")",
+      "Bash(timeout 180 npx vite build)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/celery_tasks.py', encoding='utf-8'\\).read\\(\\)\\); print\\('celery_tasks.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('screenshot_processor.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('processor OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/services/screenshot_processor.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('app/api/export.py', encoding='utf-8'\\).read\\(\\)\\); print\\('python OK'\\)\")"
     ]
   }
 }

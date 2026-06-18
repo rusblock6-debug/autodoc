@@ -94,8 +94,9 @@ export const guidesApi = {
   // Удалить гайд
   delete: (guideId) => api.delete(`/guides/${guideId}`),
   
-  // Запустить AI улучшение
-  enhanceWithAI: (guideId) => api.post(`/guides/${guideId}/enhance-with-ai`),
+  // Запустить AI обработку. mode: 'regenerate' (с нуля по скриншоту) | 'improve' (улучшить текст)
+  enhanceWithAI: (guideId, mode = 'regenerate') =>
+    api.post(`/guides/${guideId}/enhance-with-ai`, null, { params: { mode } }),
   
   // Получить статус AI обработки
   getAIStatus: (guideId) => api.get(`/guides/${guideId}/ai-status`),

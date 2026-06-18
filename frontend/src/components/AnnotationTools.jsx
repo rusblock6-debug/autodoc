@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
+import { CircleIcon, SquareIcon, ArrowRightIcon } from '../ui'
 
 function AnnotationTools({ onAddAnnotation, onClearAll, annotations }) {
   const [selectedTool, setSelectedTool] = useState(null)
-  
+
   const tools = [
-    { id: 'circle', icon: '⭕', label: 'Круг' },
-    { id: 'rect', icon: '▭', label: 'Прямоугольник' },
-    { id: 'arrow', icon: '➜', label: 'Стрелка' },
+    { id: 'circle', icon: <CircleIcon size={16} />, label: 'Круг' },
+    { id: 'rect', icon: <SquareIcon size={16} />, label: 'Прямоугольник' },
+    { id: 'arrow', icon: <ArrowRightIcon size={16} />, label: 'Стрелка' },
   ]
   
   return (

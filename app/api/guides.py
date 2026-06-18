@@ -647,12 +647,17 @@ async def get_guides_stats(
 @router.post("/{guide_id}/enhance-with-ai")
 async def enhance_guide_with_ai(
     guide_id: int,
+    mode: str = "regenerate",
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
-    Запуск AI обработки для улучшения текста шагов гайда.
-    Использует Vision AI для анализа скриншотов и генерации инструкций.
+    Запуск AI обработки текста шагов гайда.
+
+    mode="regenerate" — генерация с нуля по скриншотам (Vision AI).
+    mode="improve"    — улучшение существующего текста пользователя
+                         (орфография/формулировка, текст берётся за основу).
     """
+    mode = mode if mode in ("regenerate", "improve") else "regenerate"
     # Проверяем существование гайда
     query = select(Guide).where(Guide.id == guide_id)
     result = await db.execute(query)
@@ -676,14 +681,15 @@ async def enhance_guide_with_ai(
     
     # Запускаем Celery задачу
     from app.celery_tasks import enhance_guide_with_ai_task
-    task = enhance_guide_with_ai_task.delay(guide_id)
-    
-    logger.info(f"Started AI enhancement for guide {guide_id}, task_id: {task.id}")
-    
+    task = enhance_guide_with_ai_task.delay(guide_id, mode)
+
+    logger.info(f"Started AI enhancement for guide {guide_id}, mode={mode}, task_id: {task.id}")
+
     return {
         "success": True,
         "task_id": task.id,
         "guide_id": guide_id,
+        "mode": mode,
         "total_steps": steps_count,
         "message": "AI enhancement started",
     }

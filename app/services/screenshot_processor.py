@@ -61,6 +61,71 @@ def _draw_badge(draw: "ImageDraw.ImageDraw", cx: int, cy: int, number: int,
         draw.text((cx - tw / 2, cy - th / 2), str(number), fill='white', font=font)
 
 
+def _text_w(draw: "ImageDraw.ImageDraw", text: str, font) -> int:
+    """Ширина строки в пикселях (с фолбэком для старых Pillow)."""
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0]
+    except AttributeError:
+        return draw.textsize(text, font=font)[0]
+
+
+def _wrap_text(draw: "ImageDraw.ImageDraw", text: str, font, max_w: int) -> List[str]:
+    """Переносит текст по словам в строки не шире max_w. Уважает явные \\n."""
+    lines: List[str] = []
+    for para in text.split('\n'):
+        words = para.split(' ')
+        cur = ''
+        for word in words:
+            trial = f"{cur} {word}".strip()
+            if cur and _text_w(draw, trial, font) > max_w:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = trial
+        lines.append(cur)
+    return lines or ['']
+
+
+def _draw_label(draw: "ImageDraw.ImageDraw", cx: int, cy: int, text: str,
+                color: str, badge_r: int, max_w: int) -> None:
+    """Рисует текстовую подпись на белой плашке справа от номерного бейджа.
+
+    (cx, cy) — центр бейджа; подпись ставится справа и центрируется по вертикали.
+    Длинный текст переносится по словам, чтобы не уезжать за край картинки.
+    """
+    font = _get_font(max(13, int(badge_r * 1.1)))
+    lines = _wrap_text(draw, text, font, max_w)
+
+    # Высота строки по метрикам шрифта (ascent+descent) — чтобы нижние выносные
+    # элементы букв («ф», «у», «р») не обрезались плашкой.
+    try:
+        ascent, descent = font.getmetrics()
+        line_h = ascent + descent + 4
+    except Exception:
+        line_h = (font.size if hasattr(font, 'size') else 14) + 6
+    block_w = max(_text_w(draw, ln, font) for ln in lines)
+    block_h = line_h * len(lines)
+
+    pad_x, pad_y = 10, 6
+    left = cx + badge_r + 6
+    top = cy - block_h // 2 - pad_y
+    right = left + block_w + pad_x * 2
+    bottom = top + block_h + pad_y * 2
+    rgb = _hex_to_rgb(color)
+
+    try:
+        draw.rounded_rectangle([left, top, right, bottom], radius=6,
+                               fill=(255, 255, 255), outline=rgb, width=2)
+    except AttributeError:
+        draw.rectangle([left, top, right, bottom], fill=(255, 255, 255), outline=rgb, width=2)
+
+    ty = top + pad_y
+    for ln in lines:
+        draw.text((left + pad_x, ty), ln, fill=rgb, font=font)
+        ty += line_h
+
+
 def process_screenshot_with_annotations(
     screenshot_path: str,
     annotations: List[Dict[str, Any]],
@@ -169,8 +234,18 @@ def process_screenshot_with_annotations(
                     _draw_arrow(draw, x, y, x + w, y + h, color, ow)
                 else:
                     draw.rectangle([x, y, x + w, y + h], outline=color, width=ow)
-                # Номерной бейдж в левом-верхнем углу выделения / у начала стрелки
-                _draw_badge(draw, x, y, idx, color, badge_r)
+                # Номерной бейдж в левом-верхнем углу выделения / у начала стрелки.
+                # Учитываем пользовательское смещение блока подписи (labelDx/labelDy).
+                bx = int(x + (ann.get('labelDx') or 0) * sx)
+                by = int(y + (ann.get('labelDy') or 0) * sy)
+                _draw_badge(draw, bx, by, idx, color, badge_r)
+                # Текстовая подпись (надпись) рядом с бейджем — чтобы выгружалась в экспорт
+                label = (ann.get('label') or '').strip()
+                if label:
+                    # Перенос ограничиваем расстоянием до правого края картинки
+                    max_w = max(120, img_width - (bx + badge_r + 6) - 24)
+                    max_w = min(max_w, int(img_width * 0.45))
+                    _draw_label(draw, bx, by, label, color, badge_r, max_w)
         
         # Рисуем маркер если координаты переданы (CSS → пиксели картинки)
         if marker_x is not None and marker_y is not None:

@@ -1,20 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { guidesApi, stepsApi, storageApi, exportApi, dataJsonApi } from '../services/api'
-import { useToast, useConfirm } from '../ui'
+import {
+  useToast, useConfirm,
+  SquareIcon, CircleIcon, ArrowRightIcon, TargetIcon,
+  SparklesIcon, EditIcon, TrashIcon, DownloadIcon,
+} from '../ui'
 
 // Палитра цветов для выделений (легенды)
 const ANN_COLORS = ['#ed8d48', '#e53e3e', '#22c55e', '#3b82f6', '#a855f7']
 // Режимы выделения: spotlight (затемнить фон), outline (только рамка), glow (свечение)
 const ANN_MODES = [
-  { id: 'spotlight', icon: '🔦', label: 'Затемнить фон' },
-  { id: 'outline', icon: '▢', label: 'Только рамка' },
-  { id: 'glow', icon: '✨', label: 'Свечение' },
+  { id: 'spotlight', icon: <TargetIcon size={15} />, label: 'Затемнить фон' },
+  { id: 'outline', icon: <SquareIcon size={15} />, label: 'Только рамка' },
+  { id: 'glow', icon: <SparklesIcon size={15} />, label: 'Свечение' },
 ]
 const SHAPE_TOOLS = [
-  { id: 'rect', icon: '▭', label: 'Прямоугольник' },
-  { id: 'circle', icon: '◯', label: 'Овал' },
-  { id: 'arrow', icon: '➜', label: 'Стрелка' },
+  { id: 'rect', icon: <SquareIcon size={15} />, label: 'Прямоугольник' },
+  { id: 'circle', icon: <CircleIcon size={15} />, label: 'Овал' },
+  { id: 'arrow', icon: <ArrowRightIcon size={15} />, label: 'Стрелка' },
 ]
 
 function StepEditor() {
@@ -44,6 +48,8 @@ function StepEditor() {
   
   // AI Enhancement state
   const [aiModal, setAiModal] = useState({ open: false, progress: 0, total: 0, message: '', status: 'idle' })
+  // Радиальное меню выбора режима AI (появляется при зажатии кнопки AI)
+  const [radial, setRadial] = useState({ open: false, x: 0, y: 0 })
   const aiPollingRef = useRef(null)
   
   // Вкладки: 'steps' или 'video'
@@ -346,14 +352,32 @@ function StepEditor() {
     }
   }
 
-  const handleEnhanceWithAI = async () => {
+  // Зажатие кнопки AI — раскрываем радиальное меню в точке курсора.
+  // Выбор режима происходит перетаскиванием мыши в сектор без отпускания кнопки.
+  const openRadial = (e) => {
     if (!guide?.id) return
-    
+    e.preventDefault()
+    setRadial({ open: true, x: e.clientX, y: e.clientY })
+  }
+
+  // Пользователь дотянул до сектора и отпустил кнопку мыши
+  const handleRadialSelect = (mode) => {
+    setRadial(r => ({ ...r, open: false }))
+    startEnhance(mode)
+  }
+
+  // Отпустил в центре / вне секторов — отмена
+  const closeRadial = () => {
+    setRadial(r => ({ ...r, open: false }))
+  }
+
+  // Запуск выбранного режима: 'regenerate' (с нуля) | 'improve' (улучшить текст)
+  const startEnhance = async (mode) => {
+    if (!guide?.id) return
+
     try {
-      // Запускаем AI обработку
-      const response = await guidesApi.enhanceWithAI(guide.id)
-      
-      // Открываем модалку
+      const response = await guidesApi.enhanceWithAI(guide.id, mode)
+
       setAiModal({
         open: true,
         progress: 0,
@@ -361,10 +385,10 @@ function StepEditor() {
         message: 'Начинаем обработку...',
         status: 'processing'
       })
-      
+
       // Начинаем polling статуса
       startAIPolling()
-      
+
     } catch (error) {
       toast.error('Ошибка запуска AI обработки')
     }
@@ -554,8 +578,8 @@ function StepEditor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {saving && <span style={{ fontSize: '12px', color: '#999' }}>Сохранение...</span>}
           
-          {/* AI Enhancement Button */}
-          <AIButton onClick={handleEnhanceWithAI} title="Улучшить с помощью AI" />
+          {/* AI Enhancement Button — зажать и выбрать режим в радиальном меню */}
+          <AIButton onMouseDown={openRadial} title="Зажмите и выберите: Улучшить или Написать" />
           
           {/* Кнопки экспорта в data.json - строгие черно-белые */}
           <button 
@@ -845,7 +869,7 @@ function StepEditor() {
                       color: '#999'
                     }}
                   >
-                    🗑
+                    <TrashIcon size={14} />
                   </button>
                 )}
               </div>
@@ -928,9 +952,19 @@ function StepEditor() {
         onSubmit={handleExportSubmit}
       />
       
-      {/* AI Enhancement Modal */}
+      {/* Радиальное меню выбора режима AI */}
+      {radial.open && (
+        <RadialMenu
+          x={radial.x}
+          y={radial.y}
+          onSelect={handleRadialSelect}
+          onCancel={closeRadial}
+        />
+      )}
+
+      {/* AI Enhancement Modal (прогресс / результат) */}
       {aiModal.open && (
-        <AIModal 
+        <AIModal
           progress={aiModal.progress}
           total={aiModal.total}
           message={aiModal.message}
@@ -1099,6 +1133,8 @@ function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewpor
   const [isResizing, setIsResizing] = useState(false)
   const [localPos, setLocalPos] = useState({ x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height })
   const [labelDraft, setLabelDraft] = useState(annotation.label || '')
+  // Смещение блока «номер + подпись» относительно угла фигуры (в координатах вьюпорта)
+  const [labelOffset, setLabelOffset] = useState({ dx: annotation.labelDx || 0, dy: annotation.labelDy || 0 })
   const isMountedRef = useRef(true)
   const prevAnnotationIdRef = useRef(annotation.id)
 
@@ -1106,6 +1142,7 @@ function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewpor
     // Обновляем localPos при монтировании или при смене аннотации (переключение шагов)
     if (prevAnnotationIdRef.current !== annotation.id) {
       setLocalPos({ x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height })
+      setLabelOffset({ dx: annotation.labelDx || 0, dy: annotation.labelDy || 0 })
       prevAnnotationIdRef.current = annotation.id
     }
   }, [annotation.id, annotation.x, annotation.y, annotation.width, annotation.height])
@@ -1170,6 +1207,32 @@ function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewpor
     document.addEventListener('mouseup', handleMouseUp)
   }
 
+  // Перетаскивание блока «номер + подпись» (ручка — сам бейдж)
+  const startLabelDrag = (e) => {
+    e.preventDefault(); e.stopPropagation()
+    onSelect && onSelect()
+    if (!imageRef.current) return
+    const rect = imageRef.current.getBoundingClientRect()
+    const vw = viewportWidth || imageRef.current.naturalWidth
+    const vh = viewportHeight || imageRef.current.naturalHeight
+    const m0 = { x: e.clientX, y: e.clientY }
+    const o0 = { ...labelOffset }
+    let cur = { ...o0 }
+    const move = (ev) => {
+      const dx = (ev.clientX - m0.x) * (vw / rect.width)
+      const dy = (ev.clientY - m0.y) * (vh / rect.height)
+      cur = { dx: o0.dx + dx, dy: o0.dy + dy }
+      setLabelOffset(cur)
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      if (isMountedRef.current) onUpdate({ labelDx: Math.round(cur.dx), labelDy: Math.round(cur.dy) })
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
+
   const getPos = () => {
     if (!imageRef.current) return { left: 0, top: 0, width: 0, height: 0 }
     const dw = imageRef.current.clientWidth || 1
@@ -1188,6 +1251,14 @@ function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewpor
   const color = annotation.color || '#ed8d48'
   const mode = annotation.mode || 'spotlight'
   const isCircle = annotation.type === 'circle'
+  // Масштаб вьюпорт→экран для смещения блока подписи
+  const lblScale = (() => {
+    const el = imageRef.current
+    const dw = el?.clientWidth || 1, dh = el?.clientHeight || 1
+    const vw = viewportWidth || el?.naturalWidth || dw
+    const vh = viewportHeight || el?.naturalHeight || dh
+    return { sx: dw / vw, sy: dh / vh }
+  })()
 
   return (
     <div
@@ -1209,40 +1280,37 @@ function DraggableAnnotation({ annotation, number, isSelected, imageRef, viewpor
         transition: isDragging || isResizing ? 'none' : 'all 0.1s'
       }}
     >
-      {/* Номерной бейдж + поле подписи (легенда) */}
+      {/* Номерной бейдж + поле подписи (легенда). Блок можно перетаскивать за бейдж. */}
       <div
         onMouseDown={(e) => e.stopPropagation()}
         style={{
           position: 'absolute',
           top: '-13px',
           left: '-3px',
+          transform: `translate(${labelOffset.dx * lblScale.sx}px, ${labelOffset.dy * lblScale.sy}px)`,
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           gap: '4px',
           zIndex: 4
         }}
       >
-        <span style={{
-          minWidth: '22px', height: '22px', padding: '0 6px',
-          borderRadius: '11px', backgroundColor: color, color: '#fff',
-          fontSize: '12px', fontWeight: 700, fontFamily: 'Montserrat, sans-serif',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
-        }}>{number}</span>
+        <span
+          onMouseDown={startLabelDrag}
+          title="Перетащите, чтобы сдвинуть подпись"
+          style={{
+            minWidth: '22px', height: '22px', padding: '0 6px',
+            borderRadius: '11px', backgroundColor: color, color: '#fff',
+            fontSize: '12px', fontWeight: 700, fontFamily: 'Montserrat, sans-serif',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+            cursor: 'move', flexShrink: 0
+          }}>{number}</span>
         {(isSelected || labelDraft) && (
-          <input
+          <AnnotationLabelInput
             value={labelDraft}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onBlur={() => onUpdate({ label: labelDraft })}
-            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-            placeholder="подпись…"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              fontSize: '12px', fontFamily: 'system-ui, sans-serif',
-              padding: '2px 6px', borderRadius: '4px',
-              border: `1px solid ${color}`, backgroundColor: 'rgba(255,255,255,0.96)',
-              color: '#333', outline: 'none', width: '130px'
-            }}
+            onChange={setLabelDraft}
+            onCommit={() => onUpdate({ label: labelDraft })}
+            color={color}
           />
         )}
       </div>
@@ -1294,6 +1362,7 @@ function DraggableArrow({ annotation, number, isSelected, imageRef, viewportWidt
   const [start, setStart] = useState({ x: annotation.x, y: annotation.y })
   const [end, setEnd] = useState({ x: annotation.x + annotation.width, y: annotation.y + annotation.height })
   const [labelDraft, setLabelDraft] = useState(annotation.label || '')
+  const [labelOffset, setLabelOffset] = useState({ dx: annotation.labelDx || 0, dy: annotation.labelDy || 0 })
   const isMountedRef = useRef(true)
   useEffect(() => { isMountedRef.current = true; return () => { isMountedRef.current = false } }, [])
 
@@ -1339,8 +1408,34 @@ function DraggableArrow({ annotation, number, isSelected, imageRef, viewportWidt
     document.addEventListener('mouseup', up)
   }
 
+  // Перетаскивание блока «номер + подпись» (ручка — сам бейдж)
+  const startLabelDrag = (e) => {
+    e.preventDefault(); e.stopPropagation(); onSelect && onSelect()
+    if (!imageRef.current) return
+    const rect = imageRef.current.getBoundingClientRect()
+    const { vw, vh } = dims()
+    const m0 = { x: e.clientX, y: e.clientY }
+    const o0 = { ...labelOffset }
+    let cur = { ...o0 }
+    const move = (ev) => {
+      const dx = (ev.clientX - m0.x) * (vw / rect.width)
+      const dy = (ev.clientY - m0.y) * (vh / rect.height)
+      cur = { dx: o0.dx + dx, dy: o0.dy + dy }
+      setLabelOffset(cur)
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      if (isMountedRef.current) onUpdate({ labelDx: Math.round(cur.dx), labelDy: Math.round(cur.dy) })
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
+
   const ds = toDisplay(start)
   const de = toDisplay(end)
+  const { dw: _dw, dh: _dh, vw: _vw, vh: _vh } = dims()
+  const lblScale = { sx: _dw / _vw, sy: _dh / _vh }
   const markerId = `arrowhead-${annotation.id}`
 
   const handleStyle = (left, top) => ({
@@ -1370,30 +1465,31 @@ function DraggableArrow({ annotation, number, isSelected, imageRef, viewportWidt
       <div style={handleStyle(ds.x, ds.y)} onMouseDown={(e) => startDrag(e, 'start')} />
       <div style={handleStyle(de.x, de.y)} onMouseDown={(e) => startDrag(e, 'end')} />
 
-      {/* Бейдж + подпись у начала */}
+      {/* Бейдж + подпись у начала. Блок можно перетаскивать за бейдж. */}
       <div
         onMouseDown={(e) => e.stopPropagation()}
-        style={{ position: 'absolute', left: ds.x + 10, top: ds.y - 12, display: 'flex', alignItems: 'center', gap: '4px', pointerEvents: 'auto', zIndex: 6 }}
+        style={{
+          position: 'absolute', left: ds.x + 10, top: ds.y - 12,
+          transform: `translate(${labelOffset.dx * lblScale.sx}px, ${labelOffset.dy * lblScale.sy}px)`,
+          display: 'flex', alignItems: 'flex-start', gap: '4px', pointerEvents: 'auto', zIndex: 6
+        }}
       >
-        <span style={{
-          minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '11px',
-          backgroundColor: color, color: '#fff', fontSize: '12px', fontWeight: 700,
-          fontFamily: 'Montserrat, sans-serif', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
-        }}>{number}</span>
+        <span
+          onMouseDown={startLabelDrag}
+          title="Перетащите, чтобы сдвинуть подпись"
+          style={{
+            minWidth: '22px', height: '22px', padding: '0 6px', borderRadius: '11px',
+            backgroundColor: color, color: '#fff', fontSize: '12px', fontWeight: 700,
+            fontFamily: 'Montserrat, sans-serif', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', border: '2px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+            cursor: 'move', flexShrink: 0
+          }}>{number}</span>
         {(isSelected || labelDraft) && (
-          <input
+          <AnnotationLabelInput
             value={labelDraft}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onBlur={() => onUpdate({ label: labelDraft })}
-            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-            placeholder="подпись…"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              fontSize: '12px', fontFamily: 'system-ui, sans-serif', padding: '2px 6px',
-              borderRadius: '4px', border: `1px solid ${color}`,
-              backgroundColor: 'rgba(255,255,255,0.96)', color: '#333', outline: 'none', width: '130px'
-            }}
+            onChange={setLabelDraft}
+            onCommit={() => onUpdate({ label: labelDraft })}
+            color={color}
           />
         )}
         <button
@@ -1407,6 +1503,48 @@ function DraggableArrow({ annotation, number, isSelected, imageRef, viewportWidt
         >×</button>
       </div>
     </div>
+  )
+}
+
+// Поле подписи к выделению. Растёт по высоте и переносит строки, чтобы
+// влезал не только один короткий ярлык, но и фраза из нескольких слов.
+function AnnotationLabelInput({ value, onChange, onCommit, color }) {
+  const ref = useRef(null)
+  const autosize = (el) => {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
+  useEffect(() => { autosize(ref.current) }, [value])
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      rows={1}
+      maxLength={200}
+      onChange={(e) => onChange(e.target.value)}
+      onInput={(e) => autosize(e.currentTarget)}
+      onBlur={onCommit}
+      onKeyDown={(e) => {
+        // Не пускаем клавиши к горячим клавишам редактора — внутри ячейки работают
+        // обычные текстовые шорткаты (Ctrl+Z/Y, Ctrl+A, стрелки и т.д.).
+        e.stopPropagation()
+        // Enter — перенос строки (нативно). Esc — подтвердить и выйти.
+        if (e.key === 'Escape') { e.preventDefault(); e.currentTarget.blur() }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        fontSize: '12px', fontFamily: 'system-ui, sans-serif',
+        padding: '3px 6px', borderRadius: '4px',
+        border: `1px solid ${color}`, backgroundColor: 'rgba(255,255,255,0.96)',
+        color: '#333', outline: 'none',
+        width: '170px', maxWidth: '260px',
+        resize: 'none', overflow: 'hidden',
+        lineHeight: '1.3', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        display: 'block', boxSizing: 'border-box',
+      }}
+    />
   )
 }
 
@@ -2104,10 +2242,14 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
                   border: 'none',
                   borderRadius: '4px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
                 }}
               >
-                ⬇ Скачать видео
+                <DownloadIcon size={14} /> Скачать видео
               </button>
             )}
             
@@ -2126,13 +2268,86 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
   )
 }
 
+// Быстрое меню выбора режима AI. Появляется в точке зажатия кнопки AI;
+// выбор — перетаскиванием мыши в половину без отпускания кнопки.
+// Левая половина (искра) — «Улучшить», правая (карандаш) — «Написать».
+// Отпускание в центре или вне меню = отмена.
+function RadialMenu({ x, y, onSelect, onCancel }) {
+  const W = 104       // ширина меню
+  const H = 38        // высота меню
+  const DEAD = 9      // полуширина центральной зоны отмены
+  const [hovered, setHovered] = useState(null)
+
+  // Колбэки держим в ref, чтобы слушатели вешались один раз и не теряли событий
+  const cbRef = useRef({ onSelect, onCancel })
+  cbRef.current = { onSelect, onCancel }
+
+  const sectorAt = useCallback((cx, cy) => {
+    const dx = cx - x
+    const dy = cy - y
+    if (Math.abs(dx) > W / 2 || Math.abs(dy) > H / 2) return null  // вне меню
+    if (Math.abs(dx) < DEAD) return null                          // центр — отмена
+    return dx < 0 ? 'improve' : 'regenerate'
+  }, [x, y])
+
+  useEffect(() => {
+    const onMove = (e) => setHovered(sectorAt(e.clientX, e.clientY))
+    const onUp = (e) => {
+      const sel = sectorAt(e.clientX, e.clientY)
+      if (sel) cbRef.current.onSelect(sel)
+      else cbRef.current.onCancel()
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [sectorAt])
+
+  const half = (id) => ({
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: hovered === id ? '#ed8d48' : '#ffffff',
+    color: hovered === id ? '#ffffff' : '#666',
+    transition: 'background-color 0.1s',
+  })
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, pointerEvents: 'none' }}>
+      <div style={{
+        position: 'absolute',
+        left: x - W / 2,
+        top: y - H / 2,
+        width: W,
+        height: H,
+        display: 'flex',
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid #e0e0e0',
+        boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+      }}>
+        <div style={half('improve')} title="Улучшить">
+          <SparklesIcon size={16} />
+        </div>
+        <div style={{ width: 1, backgroundColor: '#eee' }} />
+        <div style={half('regenerate')} title="Написать">
+          <EditIcon size={16} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // AI Button Component
-function AIButton({ onClick, title }) {
+function AIButton({ onMouseDown, title }) {
   const [hover, setHover] = useState(false)
-  
+
   return (
     <button
-      onClick={onClick}
+      onMouseDown={onMouseDown}
       onMouseOver={() => setHover(true)}
       onMouseOut={() => setHover(false)}
       title={title}
@@ -2161,10 +2376,15 @@ function AIButton({ onClick, title }) {
   )
 }
 
-// AI Modal Component
+// AI Modal Component (прогресс обработки / результат)
 function AIModal({ progress, total, message, status, onClose }) {
   const progressPercent = total > 0 ? Math.round((progress / total) * 100) : 0
-  
+
+  const titleText = {
+    completed: 'Готово',
+    error: 'Ошибка',
+  }[status] || 'Обработка AI...'
+
   return (
     <div style={{
       position: 'fixed',
@@ -2194,9 +2414,9 @@ function AIModal({ progress, total, message, status, onClose }) {
           marginBottom: '16px',
           textAlign: 'center'
         }}>
-          {status === 'completed' ? '✅ Готово!' : status === 'error' ? '❌ Ошибка' : '⏳ Обработка AI...'}
+          {titleText}
         </h3>
-        
+
         {status === 'processing' && (
           <>
             {/* Progress bar */}
@@ -2231,16 +2451,18 @@ function AIModal({ progress, total, message, status, onClose }) {
         )}
         
         {/* Message */}
-        <div style={{
-          fontFamily: 'Roboto, sans-serif',
-          fontSize: '13px',
-          color: '#666',
-          textAlign: 'center',
-          marginBottom: '20px'
-        }}>
-          {message}
-        </div>
-        
+        {status !== 'choose' && (
+          <div style={{
+            fontFamily: 'Roboto, sans-serif',
+            fontSize: '13px',
+            color: '#666',
+            textAlign: 'center',
+            marginBottom: '20px'
+          }}>
+            {message}
+          </div>
+        )}
+
         {/* Close button (only when completed or error) */}
         {(status === 'completed' || status === 'error') && (
           <button

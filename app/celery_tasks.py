@@ -720,22 +720,27 @@ def generate_video_task(
 
 
 @celery_app.task(name="app.celery_tasks.enhance_guide_with_ai_task", bind=True)
-def enhance_guide_with_ai_task(self, guide_id: int) -> Dict[str, Any]:
+def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") -> Dict[str, Any]:
     """
-    Улучшение текста шагов гайда с помощью Vision AI.
-    
-    Для каждого шага:
-    1. Читает скриншот
-    2. Отправляет в Vision AI с координатами клика
-    3. Получает улучшенный текст инструкции
-    4. Обновляет normalized_text в БД
-    
+    Обработка текста шагов гайда с помощью AI. Два режима:
+
+    - mode="regenerate": генерация текста С НУЛЯ по скриншоту (Vision AI).
+      Для каждого шага читает скриншот, отправляет в Vision AI с координатами
+      клика и записывает результат в normalized_text.
+
+    - mode="improve": УЛУЧШЕНИЕ существующего текста. Берёт то, что написал
+      пользователь (edited_text/normalized_text, либо raw_speech), как ОСНОВУ
+      и только правит орфографию/формулировку. Пустой результат не пишется,
+      чтобы не затереть работу пользователя.
+
     Args:
         guide_id: ID гайда для обработки
-        
+        mode: "regenerate" (с нуля по картинке) или "improve" (полировка текста)
+
     Returns:
         Результат обработки
     """
+    mode = mode if mode in ("regenerate", "improve") else "regenerate"
     import redis
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -782,31 +787,77 @@ def enhance_guide_with_ai_task(self, guide_id: int) -> Dict[str, Any]:
         failed = 0
         last_error = None
 
+        def _improve_step(step) -> dict:
+            """Полирует существующий текст шага (без скриншота).
+
+            Возвращает {'ok': bool, 'text': str, 'error': str}. Сам пишет
+            результат в нужное поле шага, но commit оставляет вызывающему.
+            """
+            base_text = (step.edited_text or step.normalized_text or "").strip()
+            if not base_text:
+                base_text = (step.raw_speech or "").strip()
+            if not base_text:
+                return {"ok": False, "error": "no text to improve"}
+
+            res = ai_service.improve_step_text(
+                base_text=base_text,
+                element_hint=step.raw_speech,
+            )
+            if res and res.get("text"):
+                # Пишем в то же поле, что реально показывается пользователю
+                # (edited_text имеет приоритет в final_text).
+                if step.edited_text:
+                    step.edited_text = res["text"]
+                else:
+                    step.normalized_text = res["text"]
+                return {"ok": True, "text": res["text"]}
+            return {"ok": False, "error": (res or {}).get("error") or "no text returned"}
+
+        action_word = "Улучшаем" if mode == "improve" else "Анализируем"
+
         # Обрабатываем каждый шаг
         for i, step in enumerate(steps, 1):
-            logger.info(f"[AI Enhancement] Processing step {i}/{total_steps} (ID: {step.id})")
+            logger.info(f"[AI Enhancement] Processing step {i}/{total_steps} (ID: {step.id}, mode={mode})")
 
             # Обновляем прогресс
             redis_client.set(progress_key, f"{i-1}/{total_steps}", ex=3600)
-            redis_client.set(message_key, f"Анализируем шаг {i} из {total_steps}...", ex=3600)
-
-            # Проверяем наличие скриншота
-            if not step.screenshot_path:
-                logger.warning(f"[AI Enhancement] Step {step.id} has no screenshot, skipping")
-                failed += 1
-                last_error = "no screenshot"
-                continue
-
-            # Полный путь к скриншоту
-            screenshot_path = f"/data/{step.screenshot_path}"
-
-            if not os.path.exists(screenshot_path):
-                logger.warning(f"[AI Enhancement] Screenshot not found: {screenshot_path}")
-                failed += 1
-                last_error = "screenshot file missing"
-                continue
+            redis_client.set(message_key, f"{action_word} шаг {i} из {total_steps}...", ex=3600)
 
             try:
+                if mode == "improve":
+                    # Берём текст пользователя как ОСНОВУ и только полируем его.
+                    r = _improve_step(step)
+                    if r["ok"]:
+                        session.commit()
+                        succeeded += 1
+                        logger.info(f"[AI Enhancement] Step {step.id} improved: {r['text'][:50]}...")
+                    else:
+                        failed += 1
+                        last_error = r["error"]
+                        logger.warning(f"[AI Enhancement] Step {step.id} not improved: {last_error}")
+                    continue
+
+                # mode == "regenerate": генерация по скриншоту (Vision AI).
+                # Если скриншота нет (или файл потерян) — это не ошибка: откатываемся
+                # на полировку существующего текста, чтобы шаг всё равно улучшился.
+                screenshot_path = f"/data/{step.screenshot_path}" if step.screenshot_path else None
+
+                if not screenshot_path or not os.path.exists(screenshot_path):
+                    logger.info(
+                        f"[AI Enhancement] Step {step.id} has no screenshot, "
+                        f"falling back to text improvement"
+                    )
+                    r = _improve_step(step)
+                    if r["ok"]:
+                        session.commit()
+                        succeeded += 1
+                        logger.info(f"[AI Enhancement] Step {step.id} improved (no screenshot): {r['text'][:50]}...")
+                    else:
+                        failed += 1
+                        last_error = r["error"]
+                        logger.warning(f"[AI Enhancement] Step {step.id} not improved: {last_error}")
+                    continue
+
                 # Вызываем Vision AI. Текст элемента (raw_speech) — подсказка модели.
                 result = ai_service.analyze_screenshot(
                     screenshot_path=screenshot_path,
@@ -824,9 +875,20 @@ def enhance_guide_with_ai_task(self, guide_id: int) -> Dict[str, Any]:
                     succeeded += 1
                     logger.info(f"[AI Enhancement] Step {step.id} updated: {result['instruction'][:50]}...")
                 else:
-                    failed += 1
-                    last_error = (result or {}).get('error') or "no instruction returned"
-                    logger.warning(f"[AI Enhancement] Step {step.id} not updated: {last_error}")
+                    # Vision не дал результат — пробуем хотя бы отполировать текст.
+                    logger.warning(
+                        f"[AI Enhancement] Step {step.id} vision returned nothing, "
+                        f"falling back to text improvement"
+                    )
+                    r = _improve_step(step)
+                    if r["ok"]:
+                        session.commit()
+                        succeeded += 1
+                        logger.info(f"[AI Enhancement] Step {step.id} improved (vision fallback): {r['text'][:50]}...")
+                    else:
+                        failed += 1
+                        last_error = (result or {}).get('error') or r["error"]
+                        logger.warning(f"[AI Enhancement] Step {step.id} not updated: {last_error}")
 
             except Exception as e:
                 logger.error(f"[AI Enhancement] Error processing step {step.id}: {e}")

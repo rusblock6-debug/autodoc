@@ -82,6 +82,31 @@ export const SparklesIcon = (p) => (
     <path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
   </Icon>
 )
+export const SquareIcon = (p) => (
+  <Icon {...p}><rect x="4" y="4" width="16" height="16" rx="2" /></Icon>
+)
+export const CircleIcon = (p) => (
+  <Icon {...p}><circle cx="12" cy="12" r="8" /></Icon>
+)
+export const ArrowRightIcon = (p) => (
+  <Icon {...p}>
+    <line x1="4" y1="12" x2="20" y2="12" />
+    <polyline points="13 5 20 12 13 19" />
+  </Icon>
+)
+export const TargetIcon = (p) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+  </Icon>
+)
+export const VolumeIcon = (p) => (
+  <Icon {...p}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    <path d="M18.07 5.93a9 9 0 0 1 0 12.14" />
+  </Icon>
+)
 export const FileIcon = (p) => (
   <Icon {...p}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -96,6 +121,24 @@ export const AlertIcon = (p) => (
     <circle cx="12" cy="12" r="10" />
     <line x1="12" y1="8" x2="12" y2="12" />
     <line x1="12" y1="16" x2="12.01" y2="16" />
+  </Icon>
+)
+export const GridIcon = (p) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </Icon>
+)
+export const ListIcon = (p) => (
+  <Icon {...p}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
   </Icon>
 )
 
