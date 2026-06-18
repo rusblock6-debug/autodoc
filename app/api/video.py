@@ -36,8 +36,8 @@ async def generate_video(
     
     Request body:
     {
-        "tts_engine": "edge" | "chatterbox",
-        "tts_voice": "ru-RU-SvetlanaNeural",
+        "tts_engine": "silero",
+        "tts_voice": "xenia",
         "tts_speed": 1.0,
         "tts_pitch": 0
     }
@@ -95,9 +95,9 @@ async def generate_video(
     guide.updated_at = datetime.utcnow()
     await db.commit()
     
-    # Извлекаем настройки TTS
-    tts_engine = body.get("tts_engine", "edge")
-    tts_voice = body.get("tts_voice", "ru-RU-SvetlanaNeural")
+    # Извлекаем настройки TTS (по умолчанию — Silero, офлайн-русский)
+    tts_engine = body.get("tts_engine", "silero")
+    tts_voice = body.get("tts_voice", "xenia")
     tts_speed = body.get("tts_speed", 1.0)
     tts_pitch = body.get("tts_pitch", 0)
     

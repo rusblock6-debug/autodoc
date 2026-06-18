@@ -87,11 +87,7 @@ async def export_markdown(
         final_text = step.final_text
         lines.append(final_text)
         lines.append("")
-        
-        # Координаты маркера (для отладки)
-        # lines.append(f"*Маркер: ({step.click_x}, {step.click_y})*")
-        # lines.append("")
-        
+
         lines.append("---")
         lines.append("")
     

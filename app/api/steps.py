@@ -8,49 +8,20 @@ DELETE /steps/{id} - удалить шаг
 """
 
 import logging
-from typing import List, Dict, Any
-from uuid import uuid4
+from datetime import datetime
+from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Guide, GuideStep, GuideStatus
-from app.services.storage import storage_service
+from app.models import Guide, GuideStep
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Steps"])
-
-
-class StepUpdate:
-    """Схема обновления текста шага."""
-    def __init__(self, edited_text: str):
-        self.edited_text = edited_text
-
-
-class MarkerUpdate:
-    """Схема обновления позиции маркера."""
-    def __init__(self, x: int, y: int):
-        self.x = x
-        self.y = y
-
-
-class ReorderRequest:
-    """Схема изменения порядка шагов."""
-    def __init__(self, step_ids: List[int], from_index: int, to_index: int):
-        self.step_ids = step_ids
-        self.from_index = from_index
-        self.to_index = to_index
-
-
-class MergeRequest:
-    """Схема объединения шагов."""
-    def __init__(self, step_ids: List[int], merged_text: str):
-        self.step_ids = step_ids
-        self.merged_text = merged_text
 
 
 @router.patch("/{step_id}")
@@ -103,7 +74,7 @@ async def update_step(
         logger.info(f"Step {step_id} marker moved to ({step.click_x}, {step.click_y})")
     
     if updated:
-        step.updated_at = __import__("datetime").datetime.utcnow()
+        step.updated_at = datetime.utcnow()
         await db.commit()
         await db.refresh(step)
     
@@ -142,7 +113,7 @@ async def update_step_text(
     
     edited_text = body.get("edited_text", "").strip()
     step.edited_text = edited_text
-    step.updated_at = __import__("datetime").datetime.utcnow()
+    step.updated_at = datetime.utcnow()
     
     await db.commit()
     
@@ -187,7 +158,7 @@ async def update_marker_position(
     
     step.click_x = x
     step.click_y = y
-    step.updated_at = __import__("datetime").datetime.utcnow()
+    step.updated_at = datetime.utcnow()
     
     await db.commit()
     
@@ -230,22 +201,26 @@ async def reorder_steps(
         raise HTTPException(status_code=404, detail="Guide not found")
     
     new_order = body.get("step_ids", [])
-    
+
     if not new_order:
         raise HTTPException(status_code=400, detail="step_ids required")
-    
-    # Обновляем step_number для каждого шага
-    updated_count = 0
-    
-    for new_number, step_id in enumerate(new_order, start=1):
-        step = next((s for s in guide.steps if s.id == step_id), None)
-        if step:
-            step.step_number = new_number
-            updated_count += 1
-    
-    guide.updated_at = __import__("datetime").datetime.utcnow()
+
+    by_id = {s.id: s for s in guide.steps}
+    ordered = [by_id[sid] for sid in new_order if sid in by_id]
+
+    # Двухфазно: сперва временные отрицательные номера, иначе перестановка
+    # нарушит UNIQUE(guide_id, step_number) на промежуточных шагах.
+    for i, step in enumerate(ordered):
+        step.step_number = -(i + 1)
+    await db.flush()
+
+    for i, step in enumerate(ordered, start=1):
+        step.step_number = i
+
+    guide.updated_at = datetime.utcnow()
     await db.commit()
-    
+
+    updated_count = len(ordered)
     logger.info(f"Guide {guide_id} reordered: {updated_count} steps")
     
     return {
@@ -301,22 +276,26 @@ async def merge_steps(
     # Первый шаг - результат объединения
     first_step = steps_to_merge[0]
     first_step.edited_text = merged_text
-    first_step.updated_at = __import__("datetime").datetime.utcnow()
+    first_step.updated_at = datetime.utcnow()
     
-    # Удаляем остальные шаги
+    # Удаляем остальные шаги (скриншоты остаются в /data)
     steps_to_delete = steps_to_merge[1:]
     for step in steps_to_delete:
-        # Скриншоты не удаляем (остаются в /data)
         await db.delete(step)
-    
-    # Перенумеровываем оставшиеся шаги
+    await db.flush()
+
+    # Перенумеровываем оставшиеся шаги двухфазно (UNIQUE(guide_id, step_number))
     remaining_steps = [s for s in guide.steps if s.id not in step_ids]
     remaining_steps.sort(key=lambda s: s.step_number)
-    
+
+    for i, step in enumerate(remaining_steps):
+        step.step_number = -(i + 1)
+    await db.flush()
+
     for i, step in enumerate(remaining_steps, start=1):
         step.step_number = i
-    
-    guide.updated_at = __import__("datetime").datetime.utcnow()
+
+    guide.updated_at = datetime.utcnow()
     await db.commit()
     
     logger.info(f"Guide {guide_id}: merged {len(steps_to_merge)} steps into one")
@@ -347,25 +326,28 @@ async def delete_step(
         raise HTTPException(status_code=404, detail="Step not found")
     
     guide_id = step.guide_id
-    
+
     # Скриншоты не удаляем (остаются в /data)
-    
     await db.delete(step)
-    
-    # Перенумеровываем шаги в гайде
+    await db.flush()  # фиксируем удаление до перенумерации
+
+    # Перенумеровываем оставшиеся шаги двухфазно (UNIQUE(guide_id, step_number))
     guide_result = await db.execute(
         select(Guide)
         .options(selectinload(Guide.steps))
         .where(Guide.id == guide_id)
     )
     guide = guide_result.scalar_one_or_none()
-    
+
     if guide:
-        guide.steps.sort(key=lambda s: s.step_number)
-        for i, s in enumerate(guide.steps, start=1):
+        remaining = sorted(guide.steps, key=lambda s: s.step_number)
+        for i, s in enumerate(remaining):
+            s.step_number = -(i + 1)
+        await db.flush()
+        for i, s in enumerate(remaining, start=1):
             s.step_number = i
-        guide.updated_at = __import__("datetime").datetime.utcnow()
-    
+        guide.updated_at = datetime.utcnow()
+
     await db.commit()
     
     logger.info(f"Step {step_id} deleted")

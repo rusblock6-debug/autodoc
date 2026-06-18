@@ -87,7 +87,10 @@ export const guidesApi = {
   
   // Создать гайд
   create: (data) => api.post('/guides', data),
-  
+
+  // Дублировать гайд вместе со всеми шагами
+  duplicate: (guideId) => api.post(`/guides/${guideId}/duplicate`),
+
   // Обновить гайд
   update: (guideId, data) => api.patch(`/guides/${guideId}`, data),
   
@@ -113,8 +116,8 @@ export const stepsApi = {
   // Обновить шаг (текст, координаты маркера)
   update: (stepId, data) => api.patch(`/steps/${stepId}`, data),
   
-  // Изменить порядок шагов
-  reorder: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/reorder`, { step_ids: stepIds }),
+  // Изменить порядок шагов. guideId — числовой id гайда (не uuid).
+  reorder: (guideId, stepIds) => api.post('/steps/reorder', { step_ids: stepIds }, { params: { guide_id: guideId } }),
   
   // Удалить шаг
   delete: (stepId) => api.delete(`/steps/${stepId}`),
@@ -123,38 +126,8 @@ export const stepsApi = {
   merge: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/merge`, { step_ids: stepIds }),
 }
 
-// === Video API (NEW) ===
-export const videoApi = {
-  // Запустить генерацию видео
-  generate: (guideId, options = {}) => api.post(`/video/generate/${guideId}`, options),
-  
-  // Получить статус генерации по task_id
-  getStatus: (guideId, taskId) => api.get(`/video/status/${guideId}/${taskId}`),
-  
-  // Получить статус видео гайда
-  getGuideStatus: (guideId) => api.get(`/video/status/${guideId}`),
-  
-  // Скачать готовое видео
-  download: (guideId) => api.get(`/video/download/${guideId}`, { responseType: 'blob' }),
-}
-
-// === Shorts API (DEPRECATED - use videoApi) ===
-export const shortsApi = {
-  // Запустить генерацию Shorts
-  generate: (guideId, options = {}) => api.post(`/shorts/generate/${guideId}`, options),
-  
-  // Получить статус генерации
-  getStatus: (guideId, taskId = null) => {
-    const params = taskId ? { task_id: taskId } : {}
-    return api.get(`/shorts/status/${guideId}`, { params })
-  },
-  
-  // Скачать готовое видео
-  download: (guideId) => api.get(`/shorts/download/${guideId}`, { responseType: 'blob' }),
-  
-  // Получить превью (URL видео)
-  getPreview: (guideId) => api.get(`/guides/${guideId}/shorts/preview`),
-}
+// Примечание: генерация видео в StepEditor идёт через raw fetch к /video/*,
+// поэтому отдельный videoApi-объект не нужен.
 
 // === Data JSON API (экспорт в Обзор/Инструкции) ===
 export const dataJsonApi = {

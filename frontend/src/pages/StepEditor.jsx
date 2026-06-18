@@ -68,7 +68,6 @@ function StepEditor() {
     ttsEngine: 'silero',
     ttsVoice: 'xenia',
     ttsSpeed: 1.0,
-    ttsPitch: 0,
   })
 
   useEffect(() => { fetchGuide() }, [guideId])
@@ -242,7 +241,13 @@ function StepEditor() {
     const [moved] = newSteps.splice(index, 1)
     newSteps.splice(newIndex, 0, moved)
     setSteps(newSteps.map((s, i) => ({ ...s, step_number: i + 1 })))
-    try { await stepsApi.reorder(guideId, newSteps.map(s => s.id)) } catch {}
+    // reorder ждёт числовой id гайда (guide.id), а не uuid из URL
+    try {
+      await stepsApi.reorder(guide.id, newSteps.map(s => s.id))
+    } catch {
+      toast.error('Не удалось сохранить порядок шагов')
+      fetchGuide()
+    }
   }
 
   const handleSaveGuide = async () => {
@@ -251,10 +256,6 @@ function StepEditor() {
     finally { setSaving(false); navigate('/') }
   }
 
-  const handleReadyForShorts = async () => {
-    try { await guidesApi.update(guide.id, { status: 'ready' }); navigate(`/guide/${guideId}/shorts`) } catch {}
-  }
-  
   const handleGenerateVideo = async () => {
     if (!guide?.id) {
       setVideoError('Гайд не загружен')
@@ -274,7 +275,6 @@ function StepEditor() {
           tts_engine: ttsSettings.ttsEngine,
           tts_voice: ttsSettings.ttsVoice,
           tts_speed: ttsSettings.ttsSpeed,
-          tts_pitch: ttsSettings.ttsPitch,
         })
       })
       
@@ -2045,22 +2045,14 @@ function SmallBtn({ onClick, icon, danger }) {
 
 // Компонент панели генерации видео
 function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, videoError, ttsSettings, setTtsSettings, onGenerate, onDownload }) {
-  const voices = {
-    silero: [
-      { value: 'xenia', label: 'Ксения (жен.)' },
-      { value: 'baya', label: 'Бая (жен.)' },
-      { value: 'kseniya', label: 'Ксения 2 (жен.)' },
-      { value: 'eugene', label: 'Евгений (муж.)' },
-      { value: 'aidar', label: 'Айдар (муж.)' },
-    ],
-    edge: [
-      { value: 'ru-RU-SvetlanaNeural', label: 'Светлана' },
-      { value: 'ru-RU-DmitryNeural', label: 'Дмитрий' },
-    ],
-    chatterbox: [
-      { value: 'neutral', label: 'Нейтральный' },
-    ]
-  }
+  // Silero — единственный поддерживаемый продуктом движок (русские офлайн-голоса).
+  const sileroVoices = [
+    { value: 'xenia', label: 'Ксения (жен.)' },
+    { value: 'baya', label: 'Бая (жен.)' },
+    { value: 'kseniya', label: 'Ксения 2 (жен.)' },
+    { value: 'eugene', label: 'Евгений (муж.)' },
+    { value: 'aidar', label: 'Айдар (муж.)' },
+  ]
   
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -2113,69 +2105,6 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
               Настройки озвучки
             </h4>
             
-            {/* Движок */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
-                Движок
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                <button
-                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'silero', ttsVoice: 'xenia' }))}
-                  disabled={generating}
-                  style={{
-                    padding: '10px',
-                    fontFamily: 'Montserrat, sans-serif',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: ttsSettings.ttsEngine === 'silero' ? '#ed8d48' : '#fff',
-                    color: ttsSettings.ttsEngine === 'silero' ? '#fff' : '#666',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px',
-                    cursor: generating ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  Silero
-                </button>
-                <button
-                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'edge', ttsVoice: 'ru-RU-SvetlanaNeural' }))}
-                  disabled={generating}
-                  style={{
-                    padding: '10px',
-                    fontFamily: 'Montserrat, sans-serif',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: ttsSettings.ttsEngine === 'edge' ? '#ed8d48' : '#fff',
-                    color: ttsSettings.ttsEngine === 'edge' ? '#fff' : '#666',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px',
-                    cursor: generating ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  Edge TTS
-                </button>
-                <button
-                  onClick={() => setTtsSettings(s => ({ ...s, ttsEngine: 'chatterbox', ttsVoice: 'neutral' }))}
-                  disabled={generating}
-                  style={{
-                    padding: '10px',
-                    fontFamily: 'Montserrat, sans-serif',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    backgroundColor: ttsSettings.ttsEngine === 'chatterbox' ? '#ed8d48' : '#fff',
-                    color: ttsSettings.ttsEngine === 'chatterbox' ? '#fff' : '#666',
-                    border: '1px solid #e0e0e0',
-                    borderRadius: '4px',
-                    cursor: generating ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  Chatterbox
-                </button>
-              </div>
-            </div>
-            
             {/* Голос */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
@@ -2196,7 +2125,7 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
                   cursor: generating ? 'not-allowed' : 'pointer'
                 }}
               >
-                {voices[ttsSettings.ttsEngine].map(voice => (
+                {sileroVoices.map(voice => (
                   <option key={voice.value} value={voice.value}>{voice.label}</option>
                 ))}
               </select>
@@ -2224,29 +2153,6 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
               </div>
             </div>
             
-            {/* Тембр (только для Edge) */}
-            {ttsSettings.ttsEngine === 'edge' && (
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
-                  Тембр: {ttsSettings.ttsPitch > 0 ? '+' : ''}{ttsSettings.ttsPitch}
-                </label>
-                <input
-                  type="range"
-                  min="-20"
-                  max="20"
-                  step="1"
-                  value={ttsSettings.ttsPitch}
-                  onChange={(e) => setTtsSettings(s => ({ ...s, ttsPitch: parseInt(e.target.value) }))}
-                  disabled={generating}
-                  style={{ width: '100%' }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'Roboto, sans-serif', fontSize: '10px', color: '#999', marginTop: '4px' }}>
-                  <span>Низкий</span>
-                  <span>Норма</span>
-                  <span>Высокий</span>
-                </div>
-              </div>
-            )}
           </div>
           
           {/* Действия */}

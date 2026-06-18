@@ -103,7 +103,7 @@ function Dashboard() {
   const handleDuplicate = async (guide, e) => {
     e?.preventDefault(); e?.stopPropagation()
     try {
-      await guidesApi.create({ title: `${guide.title} (копия)`, language: guide.language || 'ru' })
+      await guidesApi.duplicate(guide.id)
       toast.success('Создана копия')
       refresh()
     } catch {

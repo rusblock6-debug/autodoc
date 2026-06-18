@@ -3,6 +3,7 @@ API роуты для управления гайдами.
 Реализует CRUD операции и расширенный функционал гайдов.
 """
 
+import copy
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -132,25 +133,28 @@ async def list_guides(
 @router.get("/screenshots/{screenshot_path:path}")
 async def get_screenshot(screenshot_path: str):
     """
-    Отдача скриншота по пути.
-    Путь вида: /screenshots/{session_uuid}/{filename}
+    Отдача скриншота по пути вида {session_uuid}/{filename}.
+    Путь может прийти с префиксом screenshots/ или без него.
     """
-    # Убираем ведущий слэш если есть
-    if screenshot_path.startswith("/"):
-        screenshot_path = screenshot_path[1:]
-    
-    # Полный путь к файлу
     from pathlib import Path
-    file_path = Path("/data") / screenshot_path
-    
-    # Проверяем существование
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Screenshot not found")
-    
-    # Проверяем что это в директории screenshots (безопасность)
-    if "screenshots" not in str(file_path):
+
+    # Нормализуем: убираем ведущий слэш и дублирующий префикс screenshots/
+    rel = screenshot_path.lstrip("/")
+    if rel.startswith("screenshots/"):
+        rel = rel[len("screenshots/"):]
+
+    base = Path("/data/screenshots").resolve()
+    file_path = (base / rel).resolve()
+
+    # Защита от path traversal: итоговый путь обязан лежать внутри base.
+    try:
+        file_path.relative_to(base)
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid screenshot path")
-    
+
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
     return FileResponse(
         str(file_path),
         media_type="image/png",
@@ -229,13 +233,7 @@ async def create_guide(
         uuid=str(uuid4()),
         owner_token=owner_token,
         title=guide_data.title,
-        # description=guide_data.description,  # TODO: Not in MVP model
         language=guide_data.language,
-        # content_type=ContentType(guide_data.content_type.value) if guide_data.content_type else ContentType.ALL,  # TODO: Not implemented in MVP
-        # tags=guide_data.tags or [],  # TODO: Not in MVP model
-        # asr_model=guide_data.asr_model or "large-v3",  # TODO: Not in MVP model
-        # llm_model=guide_data.llm_model or "Qwen/Qwen2.5-72B-Instruct",  # TODO: Not in MVP model
-        # tts_voice удалено - Chatterbox использует нейтральную эмоцию по умолчанию
         status=GuideStatus.DRAFT,
     )
     
@@ -244,8 +242,81 @@ async def create_guide(
     await db.refresh(guide)
     
     logger.info(f"Created new guide: {guide.id} - {guide.title}")
-    
+
     return GuideDetailResponse.model_validate(guide)
+
+
+@router.post("/{guide_id}/duplicate", response_model=GuideDetailResponse, status_code=status.HTTP_201_CREATED)
+async def duplicate_guide(
+    guide_id: int,
+    owner_token: Optional[str] = Header(None, alias="X-Owner-Token"),
+    db: AsyncSession = Depends(get_db),
+) -> GuideDetailResponse:
+    """
+    Дублирование гайда вместе со всеми шагами.
+
+    Скриншоты переиспользуются (тот же screenshot_path) — файлы общие и не
+    копируются: удаление гайда не трогает файлы на диске, поэтому удаление копии
+    не затронет оригинал. TTS-аудио не копируется (переозвучивается по требованию).
+    """
+    query = (
+        select(Guide)
+        .where(Guide.id == guide_id)
+        .options(selectinload(Guide.steps))
+    )
+    result = await db.execute(query)
+    source = result.scalar_one_or_none()
+
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guide with id {guide_id} not found",
+        )
+
+    # title в модели — String(500); не даём превысить лимит после добавления суффикса.
+    suffix = " (копия)"
+    new_title = (source.title or "")[: 500 - len(suffix)] + suffix
+
+    new_guide = Guide(
+        uuid=str(uuid4()),
+        owner_token=owner_token,
+        title=new_title,
+        language=source.language,
+        tts_voice=source.tts_voice,
+        status=GuideStatus.DRAFT,
+    )
+    db.add(new_guide)
+    await db.flush()  # получаем new_guide.id для шагов
+
+    for step in source.steps:
+        db.add(GuideStep(
+            guide_id=new_guide.id,
+            step_number=step.step_number,
+            click_timestamp=step.click_timestamp,
+            click_x=step.click_x,
+            click_y=step.click_y,
+            screenshot_path=step.screenshot_path,
+            screenshot_width=step.screenshot_width,
+            screenshot_height=step.screenshot_height,
+            annotations=copy.deepcopy(step.annotations) if step.annotations else [],
+            raw_speech=step.raw_speech,
+            raw_speech_start=step.raw_speech_start,
+            raw_speech_end=step.raw_speech_end,
+            normalized_text=step.normalized_text,
+            edited_text=step.edited_text,
+        ))
+
+    await db.commit()
+
+    # Перечитываем с шагами для корректного ответа.
+    result = await db.execute(
+        select(Guide).where(Guide.id == new_guide.id).options(selectinload(Guide.steps))
+    )
+    new_guide = result.scalar_one()
+
+    logger.info(f"Duplicated guide {guide_id} -> {new_guide.id} ({len(source.steps)} steps)")
+
+    return GuideDetailResponse.model_validate(new_guide)
 
 
 @router.patch("/{guide_id}", response_model=GuideDetailResponse)
