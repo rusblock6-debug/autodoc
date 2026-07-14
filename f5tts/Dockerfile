@@ -17,6 +17,10 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]" \
     soundfile
 
+# Отдельным слоем ПОСЛЕ pip (дёшево пересобирать): xet-сторадж HF блокируется
+# в РФ с подменой TLS-сертификата, обычный CDN-путь работает
+ENV HF_HUB_DISABLE_XET=1
+
 COPY server.py /srv/server.py
 
 EXPOSE 8010

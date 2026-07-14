@@ -157,6 +157,10 @@ services:
     build:
       context: ./f5tts
     container_name: autodoc-f5tts
+    environment:
+      # xet-сторадж HF (cas-server.xethub.hf.co) блокируется в РФ с подменой
+      # TLS-сертификата; обычный CDN-путь работает
+      - HF_HUB_DISABLE_XET=1
     volumes:
       - ./data:/data
     networks:
