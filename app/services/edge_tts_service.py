@@ -234,9 +234,8 @@ class EdgeTTSService:
                 
         except Exception as e:
             logger.error(f"Failed to get audio duration: {e}")
-            # Примерная оценка: 3 слова в секунду
-            word_count = len(text.split()) if 'text' in locals() else 10
-            return max(2.0, word_count / 3.0)
+            # 0.0 — как у silero/chatterbox; вызывающий код подставляет дефолт
+            return 0.0
 
 
 # Глобальный экземпляр сервиса
