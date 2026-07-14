@@ -7,17 +7,17 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Cookie, Body
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserLogin, UserResponse, UserWithGuides
+from app.schemas import UserCreate, UserLogin, UserResponse
 from app.config import settings
 
 
@@ -32,7 +32,6 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
@@ -52,14 +51,26 @@ class TokenData(BaseModel):
 
 # === Вспомогательные функции ===
 
+# bcrypt напрямую вместо passlib: passlib 1.7.4 несовместим с bcrypt>=4.1
+# (ValueError "password cannot be longer than 72 bytes" на любом пароле).
+# Формат хеша тот же ($2b$), старые passlib-хеши продолжают проверяться.
+# Срез до 72 байт повторяет штатное поведение bcrypt (лишнее он игнорирует).
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Проверка пароля."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8")[:72],
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        # Некорректный/пустой хеш в БД — считаем пароль неверным
+        return False
 
 
 def get_password_hash(password: str) -> str:
     """Хеширование пароля."""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(
@@ -167,14 +178,12 @@ async def register(
             detail="Username already taken",
         )
     
-    # Создаем пользователя
+    # Создаем пользователя (в модели MVP только эти поля)
     user = User(
         email=user_data.email,
         username=user_data.username,
         hashed_password=get_password_hash(user_data.password),
-        full_name=user_data.full_name,
         is_active=True,
-        is_verified=False,
         role="user",
     )
     
@@ -327,58 +336,9 @@ async def get_current_user_info(
     return UserResponse.model_validate(current_user)
 
 
-@router.get("/me/guides", response_model=UserWithGuides)
-async def get_current_user_with_guides(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> UserWithGuides:
-    """
-    Получение информации о текущем пользователе с его гайдами.
-    """
-    from sqlalchemy.orm import selectinload
-    from app.schemas import GuideListResponse
-    
-    query = (
-        select(User)
-        .where(User.id == current_user.id)
-        .options(selectinload(User.guides))
-    )
-    
-    result = await db.execute(query)
-    user = result.scalar_one_or_first()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    
-    return UserWithGuides(
-        **UserResponse.model_validate(user).model_dump(),
-        guides=[GuideListResponse.model_validate(g) for g in user.guides],
-    )
-
-
-@router.put("/me")
-async def update_current_user(
-    full_name: Optional[str] = None,
-    preferred_language: str = "ru",
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> UserResponse:
-    """
-    Обновление профиля текущего пользователя.
-    """
-    if full_name is not None:
-        current_user.full_name = full_name
-    
-    current_user.preferred_language = preferred_language
-    # preferred_tts_voice удалено - Chatterbox не требует выбора голоса
-    
-    await db.commit()
-    await db.refresh(current_user)
-    
-    return UserResponse.model_validate(current_user)
+# /me/guides и PUT /me удалены: в MVP у Guide нет user_id, а у User — профильных
+# полей (full_name/preferred_language), эндпоинты обращались к несуществующим
+# атрибутам и падали. Вернуть при появлении связи User↔Guide.
 
 
 @router.post("/change-password")

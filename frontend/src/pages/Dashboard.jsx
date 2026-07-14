@@ -123,20 +123,20 @@ function Dashboard() {
     }
   }
 
-  const handleExport = async (guide, format, e) => {
+  const handleExportPdf = async (guide, e) => {
     e?.preventDefault(); e?.stopPropagation()
     try {
-      const blob = format === 'pdf' ? await exportApi.pdf(guide.id) : await exportApi.json(guide.id)
+      const blob = await exportApi.pdf(guide.id)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${guide.title}.${format}`
+      a.download = `${guide.title}.pdf`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
     } catch {
-      toast.error(`Ошибка экспорта в ${format.toUpperCase()}`)
+      toast.error('Ошибка экспорта в PDF')
     }
   }
 
@@ -262,7 +262,7 @@ function Dashboard() {
             onToggleFavorite: (e) => handleToggleFavorite(guide, e),
             onDuplicate: (e) => handleDuplicate(guide, e),
             onDelete: (e) => handleDelete(guide, e),
-            onExport: (fmt, e) => handleExport(guide, fmt, e),
+            onExport: (e) => handleExportPdf(guide, e),
             draggable: filter === 'all' && !search,
             isDragging: draggedId === guide.id,
             isDragOver: dragOverId === guide.id,
@@ -362,8 +362,7 @@ function GuideCard({
           </Button>
           <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             <IconButton icon={CopyIcon} label="Дублировать" size={30} iconSize={15} onClick={onDuplicate} />
-            <IconButton icon={DownloadIcon} label="Скачать PDF" size={30} iconSize={15} onClick={(e) => onExport('pdf', e)} />
-            <IconButton icon={FileIcon} label="Скачать JSON" size={30} iconSize={15} onClick={(e) => onExport('json', e)} />
+            <IconButton icon={DownloadIcon} label="Скачать PDF" size={30} iconSize={15} onClick={(e) => onExport(e)} />
             <IconButton icon={TrashIcon} label="Удалить" tone="danger" size={30} iconSize={15} onClick={onDelete} />
           </div>
         </div>
@@ -423,8 +422,7 @@ function GuideRow({
           onClick={onToggleFavorite}
         />
         <IconButton icon={CopyIcon} label="Дублировать" size={32} iconSize={15} onClick={onDuplicate} />
-        <IconButton icon={DownloadIcon} label="Скачать PDF" size={32} iconSize={15} onClick={(e) => onExport('pdf', e)} />
-        <IconButton icon={FileIcon} label="Скачать JSON" size={32} iconSize={15} onClick={(e) => onExport('json', e)} />
+        <IconButton icon={DownloadIcon} label="Скачать PDF" size={32} iconSize={15} onClick={(e) => onExport(e)} />
         <IconButton icon={TrashIcon} label="Удалить" tone="danger" size={32} iconSize={15} onClick={onDelete} />
       </div>
     </div>

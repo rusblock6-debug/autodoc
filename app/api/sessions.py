@@ -13,9 +13,8 @@ from typing import Optional, List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Header
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, desc
+from sqlalchemy import select, desc
 
 from app.database import get_db
 from app.models import RecordingSession, SessionStatus, Guide, GuideStep, GuideStatus
@@ -106,9 +105,11 @@ async def upload_session(
         
         # Парсим лог кликов если есть
         clicks_data = []
+        clicks_raw_content = None
         if clicks_log:
             try:
                 content = await clicks_log.read()
+                clicks_raw_content = content
                 clicks_json = json.loads(content.decode('utf-8'))
                 clicks_data = clicks_json.get('clicks', [])
                 
@@ -162,10 +163,19 @@ async def upload_session(
                 audio_path = result.get('object_key')
                 logger.info(f"Audio uploaded: {audio_path}")
             
+            # Сохраняем исходный лог кликов: раньше он парсился и выбрасывался,
+            # и при потере скриншотов/шагов восстановить сессию было не из чего.
+            if clicks_raw_content:
+                uploads_dir = Path("/data/uploads") / session_uuid
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                clicks_file = uploads_dir / "clicks_log.json"
+                clicks_file.write_bytes(clicks_raw_content)
+                clicks_path = f"uploads/{session_uuid}/clicks_log.json"
+                logger.info(f"Clicks log saved: {clicks_path}")
+
             # Сохраняем скриншоты ЛОКАЛЬНО (без MinIO)
             import shutil
-            from pathlib import Path
-            
+
             screenshots_dir = Path("/data/screenshots") / session_uuid
             screenshots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -381,18 +391,53 @@ async def get_transcription(session_id: str, db: AsyncSession = Depends(get_db))
 @router.delete("/{session_id}")
 async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     """
-    Удалить сессию и связанные файлы.
+    Удалить сессию, связанный гайд (с шагами) и файлы на диске.
+
+    FK guides.session_id объявлен как ondelete="SET NULL", поэтому каскада на
+    гайд НЕТ — удаляем его явно (его шаги каскадятся ORM-ом). Файлы удаляем
+    best-effort: ошибка удаления файлов не должна ломать удаление из БД.
     """
+    import shutil
+
+    from sqlalchemy.orm import selectinload
+
     result = await db.execute(
-        select(RecordingSession).where(RecordingSession.uuid == session_id)
+        select(RecordingSession)
+        .options(selectinload(RecordingSession.guide))
+        .where(RecordingSession.uuid == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
-    # Удаляем из БД (cascade удалит связанный гайд и шаги)
+
+    guide = session.guide
+    guide_video_path = guide.shorts_video_path if guide else None
+
+    if guide:
+        await db.delete(guide)  # шаги удалятся каскадом ORM (delete-orphan)
     await db.delete(session)
     await db.commit()
-    
-    return {"success": True, "message": "Session deleted"}
+
+    # Файлы: скриншоты, загрузки (видео + лог кликов), аудио, готовое видео
+    removed = []
+    for rel_dir in (f"screenshots/{session_id}", f"uploads/{session_id}", f"audio/{session_id}"):
+        path = Path("/data") / rel_dir
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+                removed.append(rel_dir)
+        except OSError as e:
+            logger.warning(f"Could not remove {path}: {e}")
+
+    if guide_video_path:
+        video_file = Path("/data") / guide_video_path
+        try:
+            if video_file.is_file():
+                video_file.unlink()
+                removed.append(guide_video_path)
+        except OSError as e:
+            logger.warning(f"Could not remove {video_file}: {e}")
+
+    logger.info(f"Session {session_id} deleted (files removed: {removed})")
+    return {"success": True, "message": "Session deleted", "files_removed": removed}

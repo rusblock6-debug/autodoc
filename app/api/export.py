@@ -1,28 +1,23 @@
 """
-API: Export - экспорт гайда в Markdown/HTML/PDF/JSON.
+API: Export - экспорт гайда в Markdown/HTML/PDF.
 GET /guides/{id}/export/markdown
 GET /guides/{id}/export/html
 GET /guides/{id}/export/pdf
-GET /guides/{id}/export/json
 """
 
 import logging
-import json
-import tempfile
-import os
 import base64
 from html import escape
 from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, Response
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Guide, GuideStep, GuideStatus
+from app.models import Guide, GuideStatus
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +130,7 @@ async def export_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{markdown_response['title']}</title>
+    <title>{escape(markdown_response['title'])}</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -217,40 +212,24 @@ async def export_pdf(
     # Сортируем шаги
     steps = sorted(guide.steps, key=lambda s: s.step_number)
     
-    # Создаем красивый HTML для PDF
-    html_content = _create_pdf_html(guide, steps)
-    
+    # Тяжёлая синхронная работа (PIL + weasyprint) — в threadpool,
+    # чтобы не блокировать event loop на всё время рендера.
+    from starlette.concurrency import run_in_threadpool
+
+    html_content = await run_in_threadpool(_create_pdf_html, guide, steps)
+
     try:
-        # Используем weasyprint для генерации PDF
-        from weasyprint import HTML, CSS
-        from weasyprint.text.fonts import FontConfiguration
-        
-        # Создаем временный файл
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            # Генерируем PDF
-            font_config = FontConfiguration()
-            html_doc = HTML(string=html_content)
-            css = CSS(string=_get_pdf_css())
-            
-            html_doc.write_pdf(tmp_file.name, stylesheets=[css], font_config=font_config)
-            
-            # Читаем содержимое файла
-            with open(tmp_file.name, 'rb') as pdf_file:
-                pdf_content = pdf_file.read()
-            
-            # Удаляем временный файл
-            os.unlink(tmp_file.name)
-            
-            # Возвращаем PDF
-            filename = f"{guide.title.replace(' ', '_').encode('ascii', 'ignore').decode('ascii')}.pdf"
-            if not filename.replace('.pdf', ''):
-                filename = f"guide_{guide.id}.pdf"
-            return Response(
-                content=pdf_content,
-                media_type="application/pdf",
-                headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
-            )
-            
+        pdf_content = await run_in_threadpool(_render_pdf, html_content)
+
+        filename = f"{guide.title.replace(' ', '_').encode('ascii', 'ignore').decode('ascii')}.pdf"
+        if not filename.replace('.pdf', ''):
+            filename = f"guide_{guide.id}.pdf"
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+        )
+
     except ImportError:
         # Fallback: если weasyprint не установлен, возвращаем HTML
         logger.warning("weasyprint not installed, returning HTML instead of PDF")
@@ -267,106 +246,15 @@ async def export_pdf(
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
 
-@router.get("/export/{guide_id}/json")
-async def export_json(
-    guide_id: int,
-    include_metadata: bool = True,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Экспортировать гайд в JSON формате.
-    """
-    result = await db.execute(
-        select(Guide)
-        .options(selectinload(Guide.steps))
-        .where(Guide.id == guide_id)
-    )
-    guide = result.scalar_one_or_none()
-    
-    if not guide:
-        raise HTTPException(status_code=404, detail="Guide not found")
-    
-    # Сортируем шаги
-    steps = sorted(guide.steps, key=lambda s: s.step_number)
-    
-    # Формируем JSON структуру
-    json_data = {
-        "guide": {
-            "id": guide.id,
-            "uuid": guide.uuid,
-            "title": guide.title,
-            "status": guide.status.value if guide.status else "draft",
-            "language": guide.language or "ru",
-            "created_at": guide.created_at.isoformat() if guide.created_at else None,
-            "updated_at": guide.updated_at.isoformat() if guide.updated_at else None,
-        },
-        "steps": [
-            {
-                "id": step.id,
-                "step_number": step.step_number,
-                "text": {
-                    "raw_speech": step.raw_speech,
-                    "normalized": step.normalized_text,
-                    "edited": step.edited_text,
-                    "final": step.final_text
-                },
-                "screenshot": {
-                    "path": step.screenshot_path,
-                    "width": step.screenshot_width,
-                    "height": step.screenshot_height,
-                    "click_coordinates": {
-                        "x": step.click_x,
-                        "y": step.click_y
-                    }
-                },
-                "timing": {
-                    "click_timestamp": step.click_timestamp,
-                    "speech_start": step.raw_speech_start,
-                    "speech_end": step.raw_speech_end,
-                    "speech_duration": (step.raw_speech_end - step.raw_speech_start) if step.raw_speech_start and step.raw_speech_end else None
-                },
-                "tts": {
-                    "audio_path": step.tts_audio_path,
-                    "duration_seconds": step.tts_duration_seconds
-                },
-                "created_at": step.created_at.isoformat() if step.created_at else None,
-                "updated_at": step.updated_at.isoformat() if step.updated_at else None
-            }
-            for step in steps
-        ],
-        "statistics": {
-            "total_steps": len(steps),
-            "total_duration": sum(
-                (step.raw_speech_end - step.raw_speech_start) 
-                for step in steps 
-                if step.raw_speech_start and step.raw_speech_end
-            ) if steps else 0,
-            "steps_with_screenshots": len([s for s in steps if s.screenshot_path]),
-            "steps_with_text": len([s for s in steps if s.final_text]),
-            "steps_with_tts": len([s for s in steps if s.tts_audio_path])
-        }
-    }
-    
-    if include_metadata:
-        json_data["metadata"] = {
-            "export_format": "json",
-            "export_version": "1.0",
-            "exported_at": datetime.utcnow().isoformat(),
-            "exported_by": "НИР-Документ",
-            "schema_version": "1.0"
-        }
-    
-    # Возвращаем JSON как файл для скачивания
-    json_content = json.dumps(json_data, ensure_ascii=False, indent=2)
-    filename = f"{guide.title.replace(' ', '_').encode('ascii', 'ignore').decode('ascii')}.json"
-    if not filename.replace('.json', ''):
-        filename = f"guide_{guide.id}.json"
-    
-    return Response(
-        content=json_content.encode('utf-8'),
-        media_type="application/json",
-        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
-    )
+def _render_pdf(html_content: str) -> bytes:
+    """Синхронный рендер PDF через weasyprint (вызывать из threadpool)."""
+    from weasyprint import HTML, CSS
+    from weasyprint.text.fonts import FontConfiguration
+
+    font_config = FontConfiguration()
+    html_doc = HTML(string=html_content)
+    css = CSS(string=_get_pdf_css())
+    return html_doc.write_pdf(stylesheets=[css], font_config=font_config)
 
 
 def _create_pdf_html(guide: Guide, steps: list) -> str:
@@ -426,7 +314,7 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
             {screenshot_html}
             {legend_html}
             <div class="step-text">
-                <p>{step.final_text or f'Шаг {step.step_number}'}</p>
+                <p>{escape(step.final_text or f'Шаг {step.step_number}')}</p>
             </div>
         </div>
         """
@@ -436,7 +324,7 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
     <html lang="ru">
     <head>
         <meta charset="UTF-8">
-        <title>{guide.title}</title>
+        <title>{escape(guide.title)}</title>
     </head>
     <body>
         <div class="document">
@@ -445,7 +333,7 @@ def _create_pdf_html(guide: Guide, steps: list) -> str:
                     <div class="logo-icon">НД</div>
                     <span class="brand-name">НИР-Документ</span>
                 </div>
-                <h1 class="doc-title">{guide.title}</h1>
+                <h1 class="doc-title">{escape(guide.title)}</h1>
                 <div class="meta">
                     <span>Создано {guide.created_at.strftime('%d.%m.%Y') if guide.created_at else '—'}</span>
                     <span class="dot">·</span>
@@ -787,9 +675,12 @@ def _get_pdf_css() -> str:
 def _convert_simple_markdown(md: str) -> str:
     """Простой конвертер Markdown → HTML (базовый)."""
     import re
-    
-    html = md
-    
+
+    # Сначала экранируем HTML: текст шагов пишет пользователь, и без escape
+    # `<script>` из шага исполнится в экспортированном HTML (XSS).
+    # Markdown-синтаксис (#, *, [, ]) при этом не затрагивается.
+    html = escape(md, quote=False)
+
     # Заголовки
     html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
     html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)

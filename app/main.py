@@ -32,13 +32,18 @@ from app.schemas import HealthCheckResponse
 
 
 # === Настройка логирования ===
+_log_handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    # Вне Docker (например, на Windows-хосте) /tmp может отсутствовать —
+    # файл-лог тогда просто не подключаем, вместо падения на импорте.
+    _log_handlers.append(logging.FileHandler("/tmp/autodoc_ai.log"))
+except OSError:
+    pass
+
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("/tmp/autodoc_ai.log"),
-    ],
+    handlers=_log_handlers,
 )
 
 logger = logging.getLogger(__name__)
@@ -182,13 +187,15 @@ async def general_exception_handler(
     Общий обработчик исключений.
     """
     logger.exception(f"Unhandled exception: {exc}")
-    
+
+    # Детали исключения — только в лог: str(exc) клиенту раскрывает
+    # внутренности (пути, SQL, конфигурацию).
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "success": False,
             "error": "Internal server error",
-            "details": [{"code": "internal_error", "message": str(exc)}],
+            "details": [{"code": "internal_error", "message": "Internal server error"}],
             "timestamp": datetime.utcnow().isoformat(),
         },
     )
@@ -216,7 +223,8 @@ async def add_request_id(request: Request, call_next):
     """
     Добавление уникального ID запроса.
     """
-    request_id = request.headers.get("X-Request-ID") or str(datetime.now().timestamp())
+    from uuid import uuid4
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
@@ -226,8 +234,14 @@ async def add_request_id(request: Request, call_next):
 app.include_router(api_router, prefix="/api/v1")
 
 # === Static Files (для скриншотов) ===
-# Раздаем скриншоты напрямую из /data/screenshots
-app.mount("/data/screenshots", StaticFiles(directory="/data/screenshots"), name="screenshots")
+# Раздаем скриншоты напрямую из /data/screenshots.
+# Вне Docker директории может не быть — тогда mount пропускаем,
+# иначе приложение падает на импорте (StaticFiles проверяет путь).
+import os
+if os.path.isdir("/data/screenshots"):
+    app.mount("/data/screenshots", StaticFiles(directory="/data/screenshots"), name="screenshots")
+else:
+    logger.warning("/data/screenshots not found - static mount skipped (dev mode?)")
 
 
 # === Health Check ===

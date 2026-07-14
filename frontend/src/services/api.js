@@ -122,39 +122,30 @@ export const stepsApi = {
   // Удалить шаг
   delete: (stepId) => api.delete(`/steps/${stepId}`),
   
-  // Объединить шаги
-  merge: (guideId, stepIds) => api.post(`/guides/${guideId}/steps/merge`, { step_ids: stepIds }),
+  // Объединить шаги (бэкенд: POST /steps/merge?guide_id=N)
+  merge: (guideId, stepIds, mergedText = '') =>
+    api.post('/steps/merge', { step_ids: stepIds, merged_text: mergedText }, { params: { guide_id: guideId } }),
 }
 
 // Примечание: генерация видео в StepEditor идёт через raw fetch к /video/*,
 // поэтому отдельный videoApi-объект не нужен.
 
-// === Data JSON API (экспорт в Обзор/Инструкции) ===
-export const dataJsonApi = {
-  addToDescriptive: (data) => api.post('/data-json/add-to-descriptive', data),
-  addToInstruction: (data) => api.post('/data-json/add-to-instruction', data),
-}
-
 // === Export API ===
 export const exportApi = {
   // Экспорт в Markdown
   markdown: (guideId) => api.get(`/export/${guideId}/markdown`, { responseType: 'blob' }),
-  
+
   // Экспорт в HTML
   html: (guideId) => api.get(`/export/${guideId}/html`, { responseType: 'blob' }),
-  
+
   // Экспорт в PDF
   pdf: (guideId) => api.get(`/export/${guideId}/pdf`, { responseType: 'blob' }),
-  
-  // Экспорт в JSON
-  json: (guideId) => api.get(`/export/${guideId}/json`, { responseType: 'blob' }),
 }
 
 // === Storage API ===
 export const storageApi = {
-  // Получить URL для скачивания файла
-  getDownloadUrl: (fileKey) => api.get(`/storage/download-url`, { params: { key: fileKey } }),
-  
+  // getDownloadUrl удалён: роут /storage на бэкенде размонтирован (MinIO removed)
+
   // Получить URL скриншота (теперь через guides endpoint)
   getScreenshotUrl: (path) => {
     // Убираем начальный слэш если есть, чтобы не было дублирования

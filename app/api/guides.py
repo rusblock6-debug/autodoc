@@ -5,11 +5,10 @@ API роуты для управления гайдами.
 
 import copy
 import logging
-from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Response, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Header
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,11 +23,8 @@ from app.schemas import (
     GuideDetailResponse,
     GuideStepResponseSimple,
     GuideStepUpdate,
-    ScreenshotResponse,
     PaginatedResponse,
-    ErrorResponse,
 )
-from app.services.storage import storage_service, StorageType
 
 
 logger = logging.getLogger(__name__)
@@ -42,9 +38,7 @@ async def list_guides(
     page: int = Query(1, ge=1, description="Номер страницы"),
     page_size: int = Query(20, ge=1, le=100, description="Размер страницы"),
     status_filter: Optional[str] = Query(None, description="Фильтр по статусу"),
-    content_type: Optional[str] = Query(None, description="Фильтр по типу контента"),
     search: Optional[str] = Query(None, description="Поиск по названию"),
-    user_id: Optional[int] = Query(None, description="Фильтр по пользователю"),
     owner_token: Optional[str] = Header(None, alias="X-Owner-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse:
@@ -74,20 +68,10 @@ async def list_guides(
         except ValueError:
             pass
     
-    # TODO: content_type filtering not implemented in MVP
-    # if content_type:
-    #     try:
-    #         query = query.where(Guide.content_type == ContentType(content_type))
-    #     except ValueError:
-    #         pass
-    
     if search:
         search_term = f"%{search}%"
         query = query.where(Guide.title.ilike(search_term))
-    
-    if user_id:
-        query = query.where(Guide.user_id == user_id)
-    
+
     # Получаем общее количество
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
@@ -547,59 +531,19 @@ async def update_guide_step(
 #     ...
 
 
-@router.post("/{guide_id}/screenshots", response_model=ScreenshotResponse, status_code=status.HTTP_201_CREATED)
-async def add_screenshot(
-    guide_id: int,
-    file_path: str,
-    video_timestamp: float,
-    screenshot_type: str = "step_screenshot",
-    annotations: Optional[List[dict]] = None,
-    db: AsyncSession = Depends(get_db),
-) -> ScreenshotResponse:
+@router.post("/{guide_id}/screenshots", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+async def add_screenshot(guide_id: int) -> dict:
     """
-    Добавление скриншота к гайду.
+    Добавление скриншота к гайду — не реализовано в MVP.
+
+    Раньше эндпоинт до возврата 501 успевал скопировать произвольный файл
+    с сервера (file_path из запроса) в хранилище — это была дыра. Теперь
+    сразу 501 без побочных эффектов. Скриншоты живут в GuideStep.screenshot_path.
     """
-    # Проверяем существование гайда
-    guide = await db.get(Guide, guide_id)
-    if not guide:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Guide {guide_id} not found",
-        )
-    
-    # Загружаем скриншот в хранилище
-    try:
-        upload_result = storage_service.upload_local_file(
-            file_path=file_path,
-            bucket=StorageType.SCREENSHOTS,
-            guide_id=guide_id,
-            subfolder="screenshots",
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to upload screenshot: {e}",
-        )
-    
-    # TODO: GuideScreenshot model not implemented in MVP - use GuideStep instead
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Screenshot management not implemented in MVP. Use GuideStep.screenshot_path instead."
     )
-    # # Создаем запись в БД
-    # screenshot = GuideScreenshot(
-    #     guide_id=guide_id,
-    #     file_path=upload_result["url"],
-    #     minio_key=upload_result["object_key"],
-    #     width=1920,  # Можно получить из изображения
-    #     height=1080,
-    #     video_timestamp=video_timestamp,
-    #     screenshot_type=screenshot_type,
-    #     annotations=annotations,
-    # )
-    # 
-    # db.add(screenshot)
-    return ScreenshotResponse.model_validate(screenshot)
 
 
 # === Публичный доступ ===
@@ -622,11 +566,13 @@ async def generate_share_link(
             detail=f"Guide {guide_id} not found",
         )
     
-    # Генерируем share_token если нет
+    # Генерируем share_token если нет; включаем публичность в любом случае
+    # (раньше при существующем токене выключенный is_public не восстанавливался)
     if not guide.share_token:
         guide.share_token = str(uuid4())[:12]
+    if not guide.is_public:
         guide.is_public = True
-        await db.commit()
+    await db.commit()
     
     share_url = f"/shared/{guide.uuid}/{guide.share_token}"
     
@@ -651,7 +597,6 @@ async def access_shared_guide(
         .where(Guide.uuid == uuid, Guide.share_token == token)
         .options(
             selectinload(Guide.steps),
-            selectinload(Guide.screenshots),
         )
     )
     
@@ -697,19 +642,11 @@ async def get_guides_stats(
     )
     result = await db.execute(status_query)
     status_counts = {str(row[0]): row[1] for row in result.fetchall()}
-    
-    # По типам контента
-    content_query = (
-        select(Guide.content_type, func.count())
-        .group_by(Guide.content_type)
-    )
-    result = await db.execute(content_query)
-    content_counts = {str(row[0]): row[1] for row in result.fetchall()}
-    
+
+    # content_type в модели MVP нет — статистика только по статусам
     return {
         "total_guides": total,
         "by_status": status_counts,
-        "by_content_type": content_counts,
     }
 
 
@@ -821,12 +758,14 @@ async def get_ai_enhancement_status(
     # Парсим прогресс (формат: "2/4")
     progress_str = progress_data.decode('utf-8')
     current, total = map(int, progress_str.split('/'))
-    
-    status = status_data.decode('utf-8') if status_data else "processing"
+
+    # Не называть переменную `status`: затенит модуль fastapi.status и сломает
+    # status.HTTP_404_NOT_FOUND выше (UnboundLocalError при отсутствии гайда).
+    ai_status = status_data.decode('utf-8') if status_data else "processing"
     message = message_data.decode('utf-8') if message_data else f"Анализируем шаг {current} из {total}..."
-    
+
     return {
-        "status": status,
+        "status": ai_status,
         "current": current,
         "total": total,
         "progress_percent": int((current / total) * 100) if total > 0 else 0,

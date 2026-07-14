@@ -9,6 +9,9 @@ __pycache__/
 node_modules/
 package-lock.json
 
+# Build artifacts
+frontend/dist/
+
 # Environment
 .env
 .env.local
@@ -41,8 +44,8 @@ data/models/*
 data/torch_hub/*
 !data/**/.gitkeep
 
-# Test files
-test_*.py
+# Test files (только в корне! `test_*.py` без слэша игнорировал бы и tests/)
+/test_*.py
 admin.html
 data.json
 

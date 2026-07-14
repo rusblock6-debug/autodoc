@@ -117,6 +117,10 @@ class Guide(Base):
     # Флаги
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Публичный шеринг: токен для ссылки вида /shared/{uuid}/{share_token}
+    share_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
     # TTS настройки (Chatterbox использует нейтральную эмоцию по умолчанию)
     tts_voice: Mapped[str] = mapped_column(String(100), default="neutral", nullable=False)

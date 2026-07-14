@@ -189,14 +189,3 @@ def parse_asr_segments(asr_result: Dict[str, Any]) -> List[SpeechSegment]:
     """Парсинг сегментов речи из результата ASR (транскрипция отключена)."""
     # Whisper удален - метод оставлен для совместимости
     return []
-    
-    raw_segments = asr_result.get("segments", [])
-    if isinstance(raw_segments, list):
-        for s in raw_segments:
-            segments.append(SpeechSegment(
-                start=s.get("start", 0.0),
-                end=s.get("end", 0.0),
-                text=s.get("text", "").strip()
-            ))
-    
-    return segments

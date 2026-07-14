@@ -80,6 +80,13 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        # ALTER TABLE берёт ACCESS EXCLUSIVE lock: если какое-то соединение
+        # висит idle-in-transaction (например, живой celery-worker при рестарте
+        # только autodoc-ai), startup зависал навсегда на «Waiting for application
+        # startup». С lock_timeout DDL быстро падает, lifespan логирует warning,
+        # приложение поднимается (на существующих БД колонки уже есть).
+        await conn.execute(text("SET lock_timeout = '5s'"))
+
         # Лёгкая «миграция» для уже существующих БД: create_all не добавляет
         # новые колонки в существующие таблицы. owner_token нужен для приватности
         # черновиков (см. models.Guide).
@@ -88,6 +95,17 @@ async def init_db() -> None:
         )
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_guides_owner_token ON guides (owner_token)")
+        )
+
+        # Колонки публичного шеринга (share-ссылки и счётчик просмотров)
+        await conn.execute(
+            text("ALTER TABLE guides ADD COLUMN IF NOT EXISTS share_token VARCHAR(64)")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_guides_share_token ON guides (share_token)")
+        )
+        await conn.execute(
+            text("ALTER TABLE guides ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0")
         )
 
         # Тип действия шага (click/select/drag/input) — старые шаги считаются кликами

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { guidesApi, stepsApi, storageApi, exportApi, dataJsonApi } from '../services/api'
+import { guidesApi, stepsApi, storageApi, exportApi } from '../services/api'
 import {
   useToast, useConfirm,
   SquareIcon, CircleIcon, ArrowRightIcon, TargetIcon,
@@ -320,35 +320,19 @@ function StepEditor() {
     }
   }
 
-  const handleExport = async (format) => {
+  const handleExportPdf = async () => {
     try {
-      let blob, filename
-      
-      switch (format) {
-        case 'pdf':
-          blob = await exportApi.pdf(guide.id)
-          filename = `${guide.title}.pdf`
-          break
-        case 'json':
-          blob = await exportApi.json(guide.id)
-          filename = `${guide.title}.json`
-          break
-        default:
-          return
-      }
-      
-      // Скачиваем файл
+      const blob = await exportApi.pdf(guide.id)
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = filename
+      a.download = `${guide.title}.pdf`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      
     } catch (error) {
-      toast.error(`Ошибка экспорта в ${format.toUpperCase()}`)
+      toast.error('Ошибка экспорта в PDF')
     }
   }
 
@@ -469,65 +453,6 @@ function StepEditor() {
     }
   }, [])
 
-  // Экспорт в data.json
-  const [showExportModal, setShowExportModal] = useState(false)
-  const [exportType, setExportType] = useState('descriptive') // 'descriptive' | 'instruction'
-  
-  // Формы для экспорта
-  const [exportData, setExportData] = useState({
-    title: '',
-    subtitle: '',
-    description: '',
-    items: '',
-    nav_title: ''
-  })
-
-  const openExportModal = (type) => {
-    setExportType(type)
-    setExportData({
-      title: guide?.title || '',
-      subtitle: '',
-      description: '',
-      items: '',
-      nav_title: ''
-    })
-    setShowExportModal(true)
-  }
-
-  const handleExportSubmit = async () => {
-    try {
-      const itemsArray = exportData.items.split('\n').filter(line => line.trim())
-
-      if (exportType === 'descriptive') {
-        await dataJsonApi.addToDescriptive({
-          guide_id: guideId,
-          title: exportData.title,
-          subtitle: exportData.subtitle,
-          description: exportData.description,
-          items: itemsArray
-        })
-      } else { // instruction
-        await dataJsonApi.addToInstruction({
-          guide_id: guideId,
-          title: exportData.title,
-          nav_title: exportData.nav_title || exportData.title,
-          description: exportData.description,
-          items: itemsArray,
-          steps: steps.map(step => ({
-            text: step.annotation || `Шаг ${step.step_number}`,
-            image: step.screenshot_path || ''
-          }))
-        })
-      }
-
-      toast.success('Успешно экспортировано')
-      setShowExportModal(false)
-    } catch (error) {
-      const detail = error.response?.data?.detail || error.message || 'Не удалось экспортировать'
-      toast.error(`Ошибка экспорта: ${detail}`)
-    }
-  }
-
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
       <div style={{ width: '24px', height: '24px', border: '2px solid #e0e0e0', borderTopColor: '#ed8d48', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
@@ -548,7 +473,15 @@ function StepEditor() {
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={() => navigate('/')}
+            title="К списку инструкций"
+            style={{ padding: '8px 12px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#fff', color: '#666', border: '1px solid #e0e0e0', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            ← Назад
+          </button>
+          <div>
           {editingTitle ? (
             <input
               type="text"
@@ -592,64 +525,23 @@ function StepEditor() {
               {guide.title}
             </h1>
           )}
-          <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999', marginTop: '2px' }}>{steps.length} шагов</p>
+            <p style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#999', marginTop: '2px' }}>{steps.length} шагов</p>
+          </div>
+          <button
+            onClick={handleExportPdf}
+            title="Скачать инструкцию в PDF"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '6px', backgroundColor: 'transparent', color: '#666', border: 'none', borderRadius: '4px', cursor: 'pointer', transition: 'color 0.15s' }}
+            onMouseOver={(e) => { e.currentTarget.style.color = '#ed8d48' }}
+            onMouseOut={(e) => { e.currentTarget.style.color = '#666' }}
+          >
+            <DownloadIcon size={18} />
+          </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {saving && <span style={{ fontSize: '12px', color: '#999' }}>Сохранение...</span>}
-          
+
           {/* AI Enhancement Button — зажать и выбрать режим в радиальном меню */}
           <AIButton onMouseDown={openRadial} title="Зажмите и выберите: Улучшить или Написать" />
-          
-          {/* Кнопки экспорта в data.json - строгие черно-белые */}
-          <button 
-            onClick={() => openExportModal('descriptive')} 
-            style={{ 
-              padding: '6px 12px', 
-              fontFamily: 'Montserrat, sans-serif', 
-              fontSize: '11px', 
-              fontWeight: 600, 
-              textTransform: 'uppercase', 
-              letterSpacing: '0.5px', 
-              backgroundColor: '#fff', 
-              color: '#333', 
-              border: '1px solid #ddd', 
-              borderRadius: '4px', 
-              cursor: 'pointer'
-            }}
-            title="Экспорт в Обзор"
-          >
-            Обзор
-          </button>
-          
-          <button 
-            onClick={() => openExportModal('instruction')} 
-            style={{ 
-              padding: '6px 12px', 
-              fontFamily: 'Montserrat, sans-serif', 
-              fontSize: '11px', 
-              fontWeight: 600, 
-              textTransform: 'uppercase', 
-              letterSpacing: '0.5px', 
-              backgroundColor: '#fff', 
-              color: '#333', 
-              border: '1px solid #ddd', 
-              borderRadius: '4px', 
-              cursor: 'pointer'
-            }}
-            title="Экспорт в Инструкции"
-          >
-            Инструкции
-          </button>
-          
-          <button onClick={() => navigate('/')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#fff', color: '#666', border: '1px solid #e0e0e0', borderRadius: '4px', cursor: 'pointer' }}>
-            ← Назад
-          </button>
-          <button onClick={() => handleExport('pdf')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#e53e3e', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            PDF
-          </button>
-          <button onClick={() => handleExport('json')} style={{ padding: '8px 16px', fontFamily: 'Montserrat, sans-serif', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            JSON
-          </button>
         </div>
       </div>
 
@@ -960,16 +852,6 @@ function StepEditor() {
           )}
         </div>
       </div>
-      
-      {/* Модальное окно экспорта */}
-      <ExportModal
-        show={showExportModal}
-        onClose={() => setShowExportModal(false)}
-        type={exportType}
-        data={exportData}
-        setData={setExportData}
-        onSubmit={handleExportSubmit}
-      />
       
       {/* Радиальное меню выбора режима AI */}
       {radial.open && (
@@ -1869,162 +1751,6 @@ function StepCard({ step, index, isSelected, isFirst, isLast, isEditing, compact
             </button>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-// Модальное окно для экспорта в data.json
-function ExportModal({ show, onClose, type, data, setData, onSubmit }) {
-  if (!show) return null
-  
-  const titles = {
-    descriptive: { title: 'Обзор', color: '#ed8d48' },
-    instruction: { title: 'Инструкции', color: '#ed8d48' }
-  }
-  
-  const config = titles[type]
-  
-  return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      backgroundColor: 'rgba(0,0,0,0.75)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 9999,
-      padding: '20px'
-    }} onClick={onClose}>
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '12px',
-        maxWidth: '600px',
-        width: '100%',
-        maxHeight: '90vh',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column'
-      }} onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div style={{
-          backgroundColor: config.color,
-          color: '#333',
-          padding: '20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '2px solid #333'
-        }}>
-          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>
-            Экспорт: {config.title}
-          </h2>
-          <button onClick={onClose} style={{
-            background: 'none',
-            border: 'none',
-            color: '#333',
-            fontSize: '28px',
-            cursor: 'pointer',
-            lineHeight: 1,
-            padding: 0,
-            width: '30px',
-            height: '30px'
-          }}>×</button>
-        </div>
-        
-        {/* Body */}
-        <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#333', fontSize: '14px' }}>Заголовок *</label>
-            <input
-              type="text"
-              value={data.title}
-              onChange={e => setData({ ...data, title: e.target.value })}
-              style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
-              placeholder="Введите заголовок"
-            />
-          </div>
-      
-          {type === 'descriptive' && (
-            <>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#333', fontSize: '14px' }}>Подзаголовок</label>
-                <input
-                  type="text"
-                  value={data.subtitle}
-                  onChange={e => setData({ ...data, subtitle: e.target.value })}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
-                  placeholder="Введите подзаголовок"
-                />
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#333', fontSize: '14px' }}>Подробное описание *</label>
-                <textarea
-                  value={data.description}
-                  onChange={e => setData({ ...data, description: e.target.value })}
-                  rows={4}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', resize: 'vertical' }}
-                  placeholder="Опишите особенности раздела"
-                />
-              </div>
-            </>
-          )}
-          
-          {type === 'instruction' && (
-            <>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#333', fontSize: '14px' }}>Название для навигации</label>
-                <input
-                  type="text"
-                  value={data.nav_title}
-                  onChange={e => setData({ ...data, nav_title: e.target.value })}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
-                  placeholder={data.title}
-                />
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#333', fontSize: '14px' }}>Описание *</label>
-                <textarea
-                  value={data.description}
-                  onChange={e => setData({ ...data, description: e.target.value })}
-                  rows={4}
-                  style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', resize: 'vertical' }}
-                  placeholder="Опишите инструкцию"
-                />
-              </div>
-            </>
-          )}
-        </div>
-        
-        {/* Footer */}
-        <div style={{
-          padding: '20px',
-          borderTop: '1px solid #e0e0e0',
-          display: 'flex',
-          gap: '10px',
-          justifyContent: 'flex-end'
-        }}>
-          <button onClick={onClose} style={{
-            padding: '12px 24px',
-            backgroundColor: '#adb5bd',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 600
-          }}>Отмена</button>
-          <button onClick={onSubmit} style={{
-            padding: '12px 24px',
-            backgroundColor: config.color,
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '15px',
-            fontWeight: 600
-          }}>Экспортировать</button>
-        </div>
       </div>
     </div>
   )

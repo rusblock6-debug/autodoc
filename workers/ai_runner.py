@@ -489,11 +489,10 @@ class WikiGenerationHandler(TaskHandler):
     
     def execute(self) -> Dict[str, Any]:
         """Генерация Wiki-статьи из гайда."""
-        from app.services.wiki_generator import wiki_generator
-        
+        # НЕ импортировать app.services.wiki_generator — модуля не существует,
+        # задача wiki_generation падала с ImportError ещё до заглушки.
         format_type = self.payload.get("format", "markdown")
-        include_screenshots = self.payload.get("include_screenshots", True)
-        
+
         logger.info(f"Generating wiki for guide {self.guide_id}")
         
         # Здесь должна быть логика генерации Wiki

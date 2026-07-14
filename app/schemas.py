@@ -86,7 +86,13 @@ class UserLogin(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """Схема ответа с данными пользователя."""
+    """Схема ответа с данными пользователя.
+
+    full_name/preferred_language/is_verified в модели User (MVP) нет —
+    поля с дефолтами оставлены для совместимости формата ответа.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     email: str
     username: str
