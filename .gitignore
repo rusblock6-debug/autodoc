@@ -42,6 +42,10 @@ data/uploads/*
 data/wiki/*
 data/models/*
 data/torch_hub/*
+data/hf_cache/
+data/ruaccent/
+data/tts_refs/*
+data/test_*.wav
 !data/**/.gitkeep
 
 # Test files (только в корне! `test_*.py` без слэша игнорировал бы и tests/)
