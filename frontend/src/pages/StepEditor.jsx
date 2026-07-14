@@ -2063,11 +2063,15 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
       .catch(() => {})
   }, [])
 
+  const F5_VOICE_LABELS = {
+    default: 'Женский (стандарт)',
+    male: 'Мужской (стандарт)',
+  }
   const isF5 = ttsSettings.ttsEngine === 'f5'
   const voiceOptions = isF5
     ? (f5Voices || ['default']).map(v => ({
         value: v,
-        label: v === 'default' ? 'Стандартный (натуральный)' : v,
+        label: F5_VOICE_LABELS[v] || v,
       }))
     : sileroVoices
 

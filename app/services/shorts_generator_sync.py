@@ -326,19 +326,25 @@ class ShortsGeneratorSync:
             if not processed_screenshot:
                 processed_screenshot = str(screenshot_path)
         
+        # Паузы вокруг озвучки: без них шаги в склейке звучат встык,
+        # одной сплошной фразой. Тишина до/после + сегмент длиннее аудио.
+        pad_before = 0.4  # сек тишины перед голосом шага
+        pad_after = 0.7   # сек тишины после (пауза между шагами)
+        total_duration = segment.duration_seconds + pad_before + pad_after
+
         # Генерируем видео из обработанного скриншота
         cmd = [
             "ffmpeg",
             "-y",
             "-loop", "1",
-            "-t", str(segment.duration_seconds),
+            "-t", f"{total_duration:.3f}",
             "-i", processed_screenshot,
             "-i", segment.tts_audio_path,
             "-vf", f"scale={self.width}:{self.height}",
+            "-af", f"adelay={int(pad_before * 1000)}:all=1,apad=pad_dur={pad_after}",
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-r", str(self.fps),
-            "-shortest",
             str(output_path)
         ]
         

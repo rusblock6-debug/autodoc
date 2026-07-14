@@ -25,10 +25,20 @@ F5TTS_URL = os.environ.get("F5TTS_URL", "http://f5tts:8010")
 REFS_DIR = Path("/data/tts_refs")
 DEFAULT_VOICE = "default"
 
-# Текст дефолтного референса (~6 сек речи; ref.txt должен совпадать с ref.wav)
+# Голоса, которые бутстрапятся автоматически (клон соответствующего
+# Silero-голоса). «Настоящий» голос — папка с ref.wav+ref.txt в /data/tts_refs.
+BOOTSTRAP_VOICES = {
+    "default": "xenia",   # женский
+    "male": "eugene",     # мужской
+}
+
+# Текст авто-референса (~9 сек речи; ref.txt должен совпадать с ref.wav).
+# Подлиннее и со спокойным ритмом: F5 клонирует и ТЕМП референса тоже —
+# короткий торопливый референс даёт торопливую озвучку всех шагов.
 _DEFAULT_REF_TEXT = (
-    "Здравствуйте! В этом видео мы шаг за шагом разберём, "
-    "как работать с программой. Начнём с самого главного."
+    "Здравствуйте! В этом видео мы шаг за шагом разберём, как работать "
+    "с программой. Не торопитесь, выполняйте каждое действие спокойно "
+    "и внимательно. Начнём с самого главного."
 )
 
 # Первый запрос может качать модель (~1.4 ГБ) и грузить её на GPU
@@ -43,21 +53,22 @@ class F5TTSService:
         self.speed = speed or 1.0
 
     def _ensure_default_ref(self) -> None:
-        """Бутстрап дефолтного референс-голоса через Silero (один раз)."""
-        if self.voice != DEFAULT_VOICE:
+        """Бутстрап авто-референсов (default/male) через Silero (один раз)."""
+        speaker = BOOTSTRAP_VOICES.get(self.voice)
+        if speaker is None:
             return
-        ref_dir = REFS_DIR / DEFAULT_VOICE
+        ref_dir = REFS_DIR / self.voice
         if (ref_dir / "ref.wav").exists():
             return
 
-        logger.info("No default F5 reference voice, bootstrapping via Silero (xenia)...")
+        logger.info(f"No F5 reference voice '{self.voice}', bootstrapping via Silero ({speaker})...")
         from app.services.silero_tts_service import get_silero_service
 
         ref_dir.mkdir(parents=True, exist_ok=True)
-        silero = get_silero_service(speaker="xenia")
+        silero = get_silero_service(speaker=speaker)
         silero.synthesize_sync(text=_DEFAULT_REF_TEXT, output_path=str(ref_dir / "ref.wav"))
         (ref_dir / "ref.txt").write_text(_DEFAULT_REF_TEXT, encoding="utf-8")
-        logger.info(f"Default F5 reference voice created in {ref_dir}")
+        logger.info(f"F5 reference voice '{self.voice}' created in {ref_dir}")
 
     def synthesize(self, text: str, output_path: Optional[str] = None) -> str:
         """Синтез речи через микросервис. Возвращает путь к WAV (16-bit PCM)."""

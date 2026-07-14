@@ -182,7 +182,7 @@ async def get_f5_voices():
     }
     """
     import httpx
-    from app.services.f5_tts_service import F5TTS_URL, DEFAULT_VOICE
+    from app.services.f5_tts_service import F5TTS_URL, BOOTSTRAP_VOICES
 
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -193,10 +193,11 @@ async def get_f5_voices():
         logger.info(f"F5-TTS service unavailable: {e}")
         return {"available": False, "voices": []}
 
-    # Дефолтный референс бутстрапится лениво при первой генерации,
-    # поэтому показываем его даже если папки ещё нет
-    if DEFAULT_VOICE not in voices:
-        voices.insert(0, DEFAULT_VOICE)
+    # Авто-референсы (женский/мужской) бутстрапятся лениво при первой
+    # генерации, поэтому показываем их даже если папок ещё нет
+    for name in reversed(list(BOOTSTRAP_VOICES)):
+        if name not in voices:
+            voices.insert(0, name)
 
     return {"available": True, "voices": voices}
 

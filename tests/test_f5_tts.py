@@ -19,6 +19,7 @@ import pytest
 
 from app.services import f5_tts_service as f5_mod
 from app.services.f5_tts_service import (
+    BOOTSTRAP_VOICES,
     DEFAULT_VOICE,
     F5TTS_URL,
     F5TTSService,
@@ -171,10 +172,15 @@ class TestF5Client:
         assert calls == ["ghost_voice", DEFAULT_VOICE]
 
     def test_no_bootstrap_for_custom_voice(self, tmp_path, monkeypatch):
-        """Для не-default голоса бутстрап Silero не запускается."""
+        """Для кастомного голоса бутстрап Silero не запускается."""
         monkeypatch.setattr(f5_mod, "REFS_DIR", tmp_path)
         F5TTSService(voice="someone")._ensure_default_ref()
         assert list(tmp_path.iterdir()) == []  # ничего не создано
+
+    def test_bootstrap_voices_female_and_male(self):
+        """Из коробки два авто-голоса: женский (default) и мужской."""
+        assert BOOTSTRAP_VOICES.get("default") == "xenia"
+        assert BOOTSTRAP_VOICES.get("male") == "eugene"
 
     def test_get_audio_duration(self, tmp_path):
         p = tmp_path / "one_sec.wav"
@@ -248,3 +254,10 @@ class TestF5ServiceIntegration:
         data = r.json()
         assert data["available"] is True
         assert DEFAULT_VOICE in data["voices"]
+        assert "male" in data["voices"]
+
+    def test_male_voice_synthesizes(self):
+        r = _synth("Проверка мужского голоса.", voice="male")
+        assert r.status_code == 200
+        with wave.open(io.BytesIO(r.content), "rb") as wf:
+            assert wf.getnframes() > 0
