@@ -17,8 +17,6 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Guide, GuideStep, GuideStatus
-from app.services.storage import storage_service
-from app.services.shorts_generator import shorts_generator
 
 logger = logging.getLogger(__name__)
 
@@ -325,9 +323,6 @@ async def test_tts_for_step(
     ТЕСТ: Генерация TTS для одного шага.
     Возвращает аудио файл.
     """
-    from sqlalchemy import select
-    from app.models import GuideStep
-    
     result = await db.execute(
         select(GuideStep).where(GuideStep.id == step_id)
     )
@@ -409,22 +404,6 @@ async def preview_shorts_segments(
         "segments": segments,
         "total_estimated_duration": sum(s["estimated_duration"] for s in segments)
     }
-
-
-async def _get_screenshot_url(key: str) -> str:
-    """Получить полный URL скриншота.
-    Теперь работает с локальными файлами."""
-    if not key:
-        return ""
-    
-    # Если это уже полный URL
-    if key.startswith("http"):
-        return key
-    
-    # Для локальных файлов возвращаем URL к API
-    # Формат: "/screenshots/{uuid}/filename.png"
-    # Используем endpoint /guides/screenshots/{path}
-    return f"/api/v1/guides/screenshots{key}"
 
 
 def _estimate_tts_duration(text: str, words_per_second: float = 3.0) -> float:

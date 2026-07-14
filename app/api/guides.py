@@ -503,32 +503,8 @@ async def update_guide_step(
 
 
 # === Скриншоты ===
-
-# TODO: GuideScreenshot model not implemented in MVP - screenshots are in GuideStep
-# @router.get("/{guide_id}/screenshots", response_model=List[ScreenshotResponse])
-# async def get_guide_screenshots(
-#     guide_id: int,
-#     db: AsyncSession = Depends(get_db),
-# ) -> List[ScreenshotResponse]:
-#     """
-#     Получение скриншотов гайда.
-#     """
-#     query = (
-#         select(GuideScreenshot)
-#         .where(GuideScreenshot.guide_id == guide_id)
-#         .order_by(GuideScreenshot.video_timestamp)
-#     )
-#     
-#     result = await db.execute(query)
-#     screenshots = result.scalars().all()
-#     
-#     return [ScreenshotResponse.model_validate(s) for s in screenshots]
-
-
-# TODO: GuideScreenshot model not implemented in MVP
-# @router.get("/{guide_id}/screenshots/{screenshot_id}", response_model=ScreenshotResponse)
-# async def get_screenshot(...):
-#     ...
+# Скриншоты хранятся прямо в GuideStep (поле screenshot_path); отдельной
+# модели GuideScreenshot и её read-эндпоинтов в MVP нет.
 
 
 @router.post("/{guide_id}/screenshots", status_code=status.HTTP_501_NOT_IMPLEMENTED)

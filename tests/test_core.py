@@ -91,40 +91,6 @@ class TestSchemas:
         assert response.total_pages == 5
 
 
-class TestVideoProcessor:
-    """Тесты видео-процессора."""
-
-    @pytest.mark.asyncio
-    async def test_step_segment_creation(self):
-        from app.services.video_processor import StepSegment
-
-        segment = StepSegment(
-            start_time=5.0,
-            end_time=10.0,
-            original_start=5.0,
-            original_end=10.0,
-            text="Нажмите кнопку",
-        )
-
-        assert segment.duration == 5.0
-        assert segment.original_duration == 5.0
-
-    def test_zoom_region_creation(self):
-        from app.services.video_processor import ZoomRegion
-
-        region = ZoomRegion(
-            x=100,
-            y=200,
-            width=300,
-            height=100,
-            target_width=600,
-            target_height=200,
-        )
-
-        assert region.center_x == 250
-        assert region.center_y == 250
-
-
 class TestSileroTTS:
     """Тесты Silero TTS (текущий движок озвучки по умолчанию)."""
 
@@ -147,46 +113,6 @@ class TestSileroTTS:
         service = get_silero_service()
         assert isinstance(service, SileroTTSService)
         assert service.speaker
-
-
-class TestSmartAligner:
-    """Тесты Smart Aligner."""
-
-    def test_voice_segment_creation(self):
-        from app.services.aligner import VoiceSegment
-
-        segment = VoiceSegment(
-            start=0.0,
-            end=5.0,
-            text="Нажмите кнопку",
-            confidence=0.95,
-        )
-
-        assert segment.start == 0.0
-        assert segment.end == 5.0
-        assert segment.confidence == 0.95
-
-    def test_screen_action_creation(self):
-        from app.services.aligner import ScreenAction, ActionType
-
-        action = ScreenAction(
-            action_type=ActionType.CLICK,
-            timestamp=5.5,
-            x=100,
-            y=200,
-            element_description="Кнопка Отправить",
-        )
-
-        assert action.action_type == ActionType.CLICK
-        assert action.timestamp == 5.5
-        assert action.x == 100
-
-    def test_action_type_enum(self):
-        from app.services.aligner import ActionType
-
-        assert ActionType.CLICK.value == "click"
-        assert ActionType.SCROLL.value == "scroll"
-        assert ActionType.TYPE.value == "type"
 
 
 class TestStorageService:

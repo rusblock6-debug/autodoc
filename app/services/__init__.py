@@ -1,18 +1,9 @@
 """
 Инициализация сервисов AutoDoc AI System.
 
-ВАЖНО: Не импортируем сервисы здесь, чтобы избежать загрузки тяжелых моделей при импорте.
-Импортируйте сервисы напрямую из их модулей:
+ВАЖНО: не импортируем сервисы здесь, чтобы не тянуть тяжёлые модели при импорте
+пакета. Импортируйте сервисы напрямую из их модулей, например:
 - from app.services.ai_service import ai_service
-- from app.services.chatterbox_service import ChatterboxService
-- from app.services.video_processor import video_processor
-- etc.
+- from app.services.storage import storage_service
+- from app.services.silero_tts_service import get_silero_service
 """
-
-__all__ = [
-    "VideoProcessor",
-    "AIService", 
-    "SmartAligner",
-    "StorageService",
-    "ChatterboxService",
-]

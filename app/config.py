@@ -5,7 +5,6 @@
 Включает расширенные настройки для:
 - Redis Streams с Consumer Groups (надёжная очередь)
 - Heartbeat механизм для отслеживания живых задач
-- Subprocess isolation для AI/Video операций
 - GPU конфигурация для ML-моделей
 """
 
@@ -15,7 +14,7 @@ from typing import Optional
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -108,11 +107,7 @@ class Settings(BaseSettings):
         description="Максимальная задержка retry в секундах"
     )
     
-    # === AI Process Configuration ===
-    AI_PROCESS_TIMEOUT: int = Field(
-        default=3600, 
-        description="Hard timeout для subprocess AI в секундах (1 час)"
-    )
+    # === AI / GPU Configuration ===
     GPU_DEVICE_ID: int = Field(default=0, description="ID GPU устройства для CUDA")
     GPU_MEMORY_FRACTION: float = Field(
         default=0.8, 
@@ -217,33 +212,9 @@ class Settings(BaseSettings):
     
     # === Настройки путей ===
     WORKER_TEMP_DIR: Path = Field(
-        default=Path("/tmp/autodoc_worker_temp"), 
+        default=Path("/tmp/autodoc_worker_temp"),
         description="Временная директория для воркера"
     )
-    SUBPROCESS_SCRIPT_PATH: Path = Field(
-        default=Path("workers/ai_runner.py"), 
-        description="Путь к скрипту AI Runner (относительно проекта)"
-    )
-    
-    @field_validator("WORKER_TEMP_DIR", "SUBPROCESS_SCRIPT_PATH")
-    @classmethod
-    def validate_paths(cls, v: Path) -> Path:
-        """Валидация путей. Не создаёт директории для SUBPROCESS_SCRIPT_PATH."""
-        return v
-    
-    def get_subprocess_script_path(self) -> Path:
-        """
-        Получение абсолютного пути к скрипту AI Runner.
-        Поддерживает как абсолютные пути, так и относительные от PROJECT_ROOT.
-        """
-        if self.SUBPROCESS_SCRIPT_PATH.is_absolute():
-            return self.SUBPROCESS_SCRIPT_PATH
-        
-        # Вычисляем относительно директории app (теперь config.py в app/)
-        # Нужно подняться на уровень выше для project root
-        app_dir = Path(__file__).parent
-        project_root = app_dir.parent
-        return project_root / self.SUBPROCESS_SCRIPT_PATH
 
 
 @lru_cache()
