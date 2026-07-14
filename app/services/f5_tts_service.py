@@ -25,11 +25,15 @@ F5TTS_URL = os.environ.get("F5TTS_URL", "http://f5tts:8010")
 REFS_DIR = Path("/data/tts_refs")
 DEFAULT_VOICE = "default"
 
-# Голоса, которые бутстрапятся автоматически (клон соответствующего
-# Silero-голоса). «Настоящий» голос — папка с ref.wav+ref.txt в /data/tts_refs.
+# Голоса, которые бутстрапятся автоматически: клон Silero-голоса, опционально
+# со сдвигом тона референса (в полутонах) — клон сдвинутого референса звучит
+# как другой человек. «Настоящий» голос — папка с ref.wav+ref.txt в /data/tts_refs.
 BOOTSTRAP_VOICES = {
-    "default": "xenia",   # женский
-    "male": "eugene",     # мужской
+    "default":    {"speaker": "xenia",  "pitch": 0.0},   # женский
+    "male":       {"speaker": "eugene", "pitch": 0.0},   # мужской 1
+    "male2":      {"speaker": "aidar",  "pitch": 0.0},   # мужской 2
+    "male_deep":  {"speaker": "eugene", "pitch": -2.5},  # мужской 1, ниже
+    "male2_deep": {"speaker": "aidar",  "pitch": -2.0},  # мужской 2, ниже
 }
 
 # Текст авто-референса (~9 сек речи; ref.txt должен совпадать с ref.wav).
@@ -52,21 +56,44 @@ class F5TTSService:
         self.voice = voice or DEFAULT_VOICE
         self.speed = speed or 1.0
 
+    @staticmethod
+    def _pitch_shift(src: str, dst: str, semitones: float) -> None:
+        """Сдвиг тона WAV на N полутонов (длительность сохраняется)."""
+        import subprocess
+        from app.services.silero_tts_service import SAMPLE_RATE
+
+        factor = 2 ** (semitones / 12)
+        cmd = [
+            "ffmpeg", "-y", "-i", src,
+            "-af", f"asetrate={int(SAMPLE_RATE * factor)},aresample={SAMPLE_RATE},atempo={1 / factor:.6f}",
+            "-ar", str(SAMPLE_RATE),
+            dst,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
     def _ensure_default_ref(self) -> None:
-        """Бутстрап авто-референсов (default/male) через Silero (один раз)."""
-        speaker = BOOTSTRAP_VOICES.get(self.voice)
-        if speaker is None:
+        """Бутстрап авто-референсов (BOOTSTRAP_VOICES) через Silero (один раз)."""
+        spec = BOOTSTRAP_VOICES.get(self.voice)
+        if spec is None:
             return
         ref_dir = REFS_DIR / self.voice
-        if (ref_dir / "ref.wav").exists():
+        ref_wav = ref_dir / "ref.wav"
+        if ref_wav.exists():
             return
 
-        logger.info(f"No F5 reference voice '{self.voice}', bootstrapping via Silero ({speaker})...")
+        speaker, pitch = spec["speaker"], spec["pitch"]
+        logger.info(f"No F5 reference voice '{self.voice}', bootstrapping via Silero ({speaker}, pitch {pitch:+.1f})...")
         from app.services.silero_tts_service import get_silero_service
 
         ref_dir.mkdir(parents=True, exist_ok=True)
         silero = get_silero_service(speaker=speaker)
-        silero.synthesize_sync(text=_DEFAULT_REF_TEXT, output_path=str(ref_dir / "ref.wav"))
+        if pitch:
+            raw = ref_dir / "ref_raw.wav"
+            silero.synthesize_sync(text=_DEFAULT_REF_TEXT, output_path=str(raw))
+            self._pitch_shift(str(raw), str(ref_wav), pitch)
+            raw.unlink(missing_ok=True)
+        else:
+            silero.synthesize_sync(text=_DEFAULT_REF_TEXT, output_path=str(ref_wav))
         (ref_dir / "ref.txt").write_text(_DEFAULT_REF_TEXT, encoding="utf-8")
         logger.info(f"F5 reference voice '{self.voice}' created in {ref_dir}")
 

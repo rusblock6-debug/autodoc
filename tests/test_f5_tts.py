@@ -178,9 +178,14 @@ class TestF5Client:
         assert list(tmp_path.iterdir()) == []  # ничего не создано
 
     def test_bootstrap_voices_female_and_male(self):
-        """Из коробки два авто-голоса: женский (default) и мужской."""
-        assert BOOTSTRAP_VOICES.get("default") == "xenia"
-        assert BOOTSTRAP_VOICES.get("male") == "eugene"
+        """Из коробки: женский (default) и четыре мужских варианта."""
+        assert BOOTSTRAP_VOICES["default"]["speaker"] == "xenia"
+        male = {n: s for n, s in BOOTSTRAP_VOICES.items()
+                if s["speaker"] in ("eugene", "aidar")}
+        assert len(male) == 4
+        # «Низкие» варианты — это сдвиг тона референса
+        assert BOOTSTRAP_VOICES["male_deep"]["pitch"] < 0
+        assert BOOTSTRAP_VOICES["male2_deep"]["pitch"] < 0
 
     def test_get_audio_duration(self, tmp_path):
         p = tmp_path / "one_sec.wav"
@@ -261,3 +266,9 @@ class TestF5ServiceIntegration:
         assert r.status_code == 200
         with wave.open(io.BytesIO(r.content), "rb") as wf:
             assert wf.getnframes() > 0
+
+    def test_pitched_voice_bootstrap_and_synthesis(self, tmp_path):
+        """Полный путь «низкого» голоса: Silero -> pitch-shift -> клон F5."""
+        svc = get_f5_service(voice="male2_deep")
+        path = svc.synthesize_sync("Проверка низкого голоса.", str(tmp_path / "deep.wav"))
+        assert svc.get_audio_duration(path) > 0.5

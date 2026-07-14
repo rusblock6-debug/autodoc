@@ -2065,7 +2065,10 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
 
   const F5_VOICE_LABELS = {
     default: 'Женский (стандарт)',
-    male: 'Мужской (стандарт)',
+    male: 'Мужской 1',
+    male2: 'Мужской 2',
+    male_deep: 'Мужской 1 (низкий)',
+    male2_deep: 'Мужской 2 (низкий)',
   }
   const isF5 = ttsSettings.ttsEngine === 'f5'
   const voiceOptions = isF5
