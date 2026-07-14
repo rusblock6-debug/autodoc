@@ -148,6 +148,27 @@ services:
       - autodoc-network
     restart: "no"
 
+  # === F5-TTS (GPU-озвучка, натуральный русский голос) ===
+  # Отдельный контейнер по аналогии с ollama: CUDA-torch не раздувает основной
+  # образ. Модель (~1.4 ГБ) качается лениво в ./data при первом синтезе.
+  # Без docker-compose.gpu.yml работает на CPU (медленно, но работает).
+  # Если сервис не поднят — движок F5 просто не показывается в UI.
+  f5tts:
+    build:
+      context: ./f5tts
+    container_name: autodoc-f5tts
+    volumes:
+      - ./data:/data
+    networks:
+      - autodoc-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # === Celery Worker (for background tasks) ===
   celery-worker:
     build:

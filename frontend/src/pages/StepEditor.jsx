@@ -2045,7 +2045,6 @@ function SmallBtn({ onClick, icon, danger }) {
 
 // Компонент панели генерации видео
 function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, videoError, ttsSettings, setTtsSettings, onGenerate, onDownload }) {
-  // Silero — единственный поддерживаемый продуктом движок (русские офлайн-голоса).
   const sileroVoices = [
     { value: 'xenia', label: 'Ксения (жен.)' },
     { value: 'baya', label: 'Бая (жен.)' },
@@ -2053,7 +2052,33 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
     { value: 'eugene', label: 'Евгений (муж.)' },
     { value: 'aidar', label: 'Айдар (муж.)' },
   ]
-  
+
+  // F5 (GPU-микросервис) — показываем движок, только если контейнер поднят.
+  // Голоса — референсы из /data/tts_refs (свой добавляется парой ref.wav+ref.txt).
+  const [f5Voices, setF5Voices] = useState(null) // null = недоступен
+  useEffect(() => {
+    fetch('/api/v1/video/f5-voices')
+      .then(r => r.json())
+      .then(data => { if (data.available) setF5Voices(data.voices) })
+      .catch(() => {})
+  }, [])
+
+  const isF5 = ttsSettings.ttsEngine === 'f5'
+  const voiceOptions = isF5
+    ? (f5Voices || ['default']).map(v => ({
+        value: v,
+        label: v === 'default' ? 'Стандартный (натуральный)' : v,
+      }))
+    : sileroVoices
+
+  const handleEngineChange = (engine) => {
+    setTtsSettings(s => ({
+      ...s,
+      ttsEngine: engine,
+      ttsVoice: engine === 'f5' ? 'default' : 'xenia',
+    }))
+  }
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
@@ -2105,6 +2130,33 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
               Настройки озвучки
             </h4>
             
+            {/* Движок (F5 виден только когда GPU-сервис доступен) */}
+            {f5Voices && (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
+                  Движок
+                </label>
+                <select
+                  value={ttsSettings.ttsEngine}
+                  onChange={(e) => handleEngineChange(e.target.value)}
+                  disabled={generating}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    fontFamily: 'Roboto, sans-serif',
+                    fontSize: '12px',
+                    backgroundColor: '#fff',
+                    border: '1px solid #e0e0e0',
+                    borderRadius: '4px',
+                    cursor: generating ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  <option value="silero">Silero (быстрый)</option>
+                  <option value="f5">F5 Neural (натуральный, GPU)</option>
+                </select>
+              </div>
+            )}
+
             {/* Голос */}
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontFamily: 'Roboto, sans-serif', fontSize: '11px', color: '#666', display: 'block', marginBottom: '8px' }}>
@@ -2125,7 +2177,7 @@ function VideoPanel({ guide, generating, progress, progressMessage, videoUrl, vi
                   cursor: generating ? 'not-allowed' : 'pointer'
                 }}
               >
-                {sileroVoices.map(voice => (
+                {voiceOptions.map(voice => (
                   <option key={voice.value} value={voice.value}>{voice.label}</option>
                 ))}
               </select>

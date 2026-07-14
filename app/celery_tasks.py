@@ -614,6 +614,10 @@ def generate_video_task(
             # Для Silero tts_voice — это имя голоса (xenia/baya/eugene/...)
             speaker = tts_voice if tts_voice in ("aidar", "baya", "kseniya", "eugene", "xenia") else DEFAULT_SPEAKER
             tts_service = get_silero_service(speaker=speaker)
+        elif tts_engine == "f5":
+            # F5-TTS (GPU-микросервис): tts_voice — имя референса из /data/tts_refs
+            from app.services.f5_tts_service import get_f5_service
+            tts_service = get_f5_service(voice=tts_voice, speed=tts_speed)
         else:
             tts_service = get_chatterbox_service()
         
@@ -764,6 +768,8 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
     # Свежий запуск — снимаем возможный флаг отмены от прошлой задачи
     redis_client.delete(cancel_key)
 
+    engine = None
+    session = None
     try:
         # Создаем синхронное подключение к БД
         engine = create_engine(settings.sync_database_url)
@@ -956,13 +962,20 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
         
     except Exception as e:
         logger.exception(f"[AI Enhancement] Failed for guide {guide_id}: {e}")
-        
+
         # Устанавливаем статус ошибки
         redis_client.set(status_key, "error", ex=3600)
         redis_client.set(message_key, f"Ошибка: {str(e)}", ex=3600)
-        
+
         return {
             "success": False,
             "guide_id": guide_id,
             "error": str(e),
         }
+    finally:
+        # Движок создаётся на каждый запуск задачи: без dispose() пул держал
+        # соединения к postgres до конца жизни воркера (утечка соединений)
+        if session is not None:
+            session.close()
+        if engine is not None:
+            engine.dispose()

@@ -21,3 +21,14 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # F5-TTS без GPU практически неюзабелен (минуты на шаг вместо секунд),
+  # поэтому проброс GPU и сюда.
+  f5tts:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

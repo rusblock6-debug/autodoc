@@ -169,6 +169,38 @@ async def generate_video(
         raise HTTPException(status_code=500, detail=f"Failed to start video generation: {str(e)}")
 
 
+@router.get("/f5-voices")
+async def get_f5_voices():
+    """
+    Список голосов F5-TTS (референсы из /data/tts_refs) + доступность сервиса.
+    Если GPU-контейнер f5tts не поднят, фронт просто не показывает движок F5.
+
+    Returns:
+    {
+        "available": true,
+        "voices": ["default", "my_voice"]
+    }
+    """
+    import httpx
+    from app.services.f5_tts_service import F5TTS_URL, DEFAULT_VOICE
+
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(f"{F5TTS_URL}/voices")
+            response.raise_for_status()
+            voices = response.json().get("voices", [])
+    except Exception as e:
+        logger.info(f"F5-TTS service unavailable: {e}")
+        return {"available": False, "voices": []}
+
+    # Дефолтный референс бутстрапится лениво при первой генерации,
+    # поэтому показываем его даже если папки ещё нет
+    if DEFAULT_VOICE not in voices:
+        voices.insert(0, DEFAULT_VOICE)
+
+    return {"available": True, "voices": voices}
+
+
 @router.get("/status/{guide_id}/{task_id}")
 async def get_video_status(
     guide_id: int,
