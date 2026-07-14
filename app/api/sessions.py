@@ -24,6 +24,51 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Sessions"])
 
+VALID_ACTIONS = ("click", "select", "drag", "input")
+
+
+def make_step_placeholder(click: dict) -> tuple:
+    """Заглушка текста шага до Vision-обработки — по типу действия.
+
+    Возвращает (action, placeholder, hint): hint — текст-подсказка для
+    последующей AI-обработки (кладётся в raw_speech).
+    """
+    action = click.get("action") or "click"
+    if action not in VALID_ACTIONS:
+        action = "click"
+
+    element_text = (click.get("element_text") or click.get("text") or "").strip()
+    element_tag = click.get("element") or click.get("tagName") or "элемент"
+
+    if action == "select":
+        selected = (click.get("selected_text") or "").strip()
+        short = selected[:60] or element_text[:60]
+        placeholder = f"Выделите текст «{short}»" if short else "Выделите текст"
+        hint = selected or element_text
+    elif action == "drag":
+        placeholder = (
+            f"Перетащите «{element_text[:60]}»" if element_text else "Перетащите элемент"
+        )
+        hint = element_text
+    elif action == "input":
+        label = (click.get("field_label") or "").strip() or element_text
+        value = (click.get("input_value") or "").strip()
+        if label and value:
+            placeholder = f"Введите «{value[:40]}» в поле «{label[:40]}»"
+        elif label:
+            placeholder = f"Введите значение в поле «{label[:60]}»"
+        else:
+            placeholder = "Введите значение в поле"
+        hint = f"{label}: {value}".strip(": ")
+    else:  # click
+        if element_text:
+            placeholder = f"Нажмите «{element_text[:60]}»"
+        else:
+            placeholder = f"Нажмите на элемент {element_tag}"
+        hint = element_text
+
+    return action, placeholder, hint
+
 
 @router.post("/upload")
 async def upload_session(
@@ -189,13 +234,9 @@ async def upload_session(
                 screenshot_path = screenshot_paths.get(i, "")
 
                 # Временная заглушка до Vision-обработки ("Улучшить с помощью AI").
-                # Предпочитаем подпись элемента (текст кнопки/ссылки) — она информативнее тега.
-                element_text = (click.get('element_text') or click.get('text') or "").strip()
-                element_tag = click.get('element') or click.get('tagName') or 'элемент'
-                if element_text:
-                    placeholder = f"Нажмите «{element_text[:60]}»"
-                else:
-                    placeholder = f"Нажмите на элемент {element_tag}"
+                # Глагол — по типу действия (click/select/drag/input), подпись
+                # элемента информативнее тега.
+                action, placeholder, hint = make_step_placeholder(click)
 
                 step = GuideStep(
                     guide_id=guide.id,
@@ -203,10 +244,11 @@ async def upload_session(
                     click_timestamp=click.get('timestamp', 0),
                     click_x=click.get('x', 0),
                     click_y=click.get('y', 0),
+                    action=action,
                     screenshot_path=screenshot_path,
                     screenshot_width=click.get('viewport_width', 1920),
                     screenshot_height=click.get('viewport_height', 1080),
-                    raw_speech=element_text,
+                    raw_speech=hint,
                     normalized_text=placeholder,
                     created_at=datetime.utcnow()
                 )

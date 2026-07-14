@@ -894,7 +894,8 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
                         logger.warning(f"[AI Enhancement] Step {step.id} not improved: {last_error}")
                     continue
 
-                # Вызываем Vision AI. Текст элемента (raw_speech) — подсказка модели.
+                # Вызываем Vision AI. Текст элемента (raw_speech) — подсказка модели,
+                # тип действия (click/select/drag/input) задаёт глагол инструкции.
                 result = ai_service.analyze_screenshot(
                     screenshot_path=screenshot_path,
                     click_x=step.click_x,
@@ -902,6 +903,7 @@ def enhance_guide_with_ai_task(self, guide_id: int, mode: str = "regenerate") ->
                     viewport_width=step.screenshot_width,
                     viewport_height=step.screenshot_height,
                     element_hint=step.raw_speech,
+                    action=getattr(step, "action", None) or "click",
                 )
 
                 # Обновляем текст шага

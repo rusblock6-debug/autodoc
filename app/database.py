@@ -90,6 +90,11 @@ async def init_db() -> None:
             text("CREATE INDEX IF NOT EXISTS ix_guides_owner_token ON guides (owner_token)")
         )
 
+        # Тип действия шага (click/select/drag/input) — старые шаги считаются кликами
+        await conn.execute(
+            text("ALTER TABLE guide_steps ADD COLUMN IF NOT EXISTS action VARCHAR(16) NOT NULL DEFAULT 'click'")
+        )
+
 
 async def close_db() -> None:
     """

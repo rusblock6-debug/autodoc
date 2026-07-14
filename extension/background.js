@@ -381,15 +381,21 @@ async function handleClickLog(data, sender) {
     recordingState.recordingTabs.add(tabId);
   }
   
-  // Сохраняем клик
+  // Сохраняем событие (click / select / drag / input)
   const clickEntry = {
     timestamp,
+    action: data.action || 'click',
     x: data.x,
     y: data.y,
     element: data.tagName || 'unknown',
     element_id: data.id || null,
     element_class: data.className || null,
     element_text: data.text || null,
+    selected_text: data.selectedText || null,   // select: что выделили
+    to_x: data.toX ?? null,                     // drag: куда отпустили
+    to_y: data.toY ?? null,
+    field_label: data.fieldLabel || null,       // input: подпись поля
+    input_value: data.value || null,            // input: введённое значение
     href: data.href || null,
     is_link: data.isLink || false,
     viewport_width: data.viewportWidth,

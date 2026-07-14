@@ -170,6 +170,8 @@ class GuideStep(Base):
     click_timestamp: Mapped[float] = mapped_column(Float, nullable=False)  # Таймкод клика в секундах
     click_x: Mapped[int] = mapped_column(Integer, nullable=False)          # Координата X маркера
     click_y: Mapped[int] = mapped_column(Integer, nullable=False)          # Координата Y маркера
+    # Тип действия: click | select | drag | input (старые записи — click)
+    action: Mapped[str] = mapped_column(String(16), nullable=False, default="click", server_default="click")
     
     # === СКРИНШОТ ===
     screenshot_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
